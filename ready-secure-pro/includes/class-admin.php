@@ -2,397 +2,419 @@
 if (!defined('ABSPATH')) { exit; }
 
 /**
- * کلاس پنل مدیریتی Ready Secure Pro
- * - تب‌بندی فارسی و برند Ready Studio
- * - دکمه‌ها با گوشهٔ 8px
- * - هندلرهای AJAX با بررسی nonce + capability
+ * Ready Secure Pro - Admin Area
+ * v2.5.0
+ * - افزودن تب «راهنما» + دکمه‌های اعمال تنظیمات پیشنهادی (۳ پروفایل)
+ * - هر تب/فرم گروه تنظیمات مستقل دارد؛ ذخیرهٔ یک فرم، بقیه را دست نمی‌زند
+ * - پیام‌های settings_errors، Flush پیوندها (AJAX)، Export/Import تنظیمات
  */
 class RSP_Admin {
 
     public function init() {
-        add_action('admin_menu', [$this, 'menu']);
+        add_action('plugins_loaded', [$this, 'i18n']);
+        add_action('admin_menu',     [$this, 'menu']);
         add_action('admin_enqueue_scripts', [$this, 'assets']);
-        add_action('admin_init', [$this, 'register_settings']);
-        add_action('admin_head', [$this, 'inline_styles']);
 
-        // پروفایل کاربر (2FA)
-        add_action('show_user_profile', [$this, 'render_profile_2fa']);
-        add_action('edit_user_profile', [$this, 'render_profile_2fa']);
-        add_action('personal_options_update', [$this, 'save_profile_2fa']);
-        add_action('edit_user_profile_update', [$this, 'save_profile_2fa']);
+        // سکشن/فیلدهای همین کلاس
+        add_action('admin_init', function () {
+            // صفحه ورود و دسترسی (گروه مستقل)
+            register_setting('rsp_settings_login', 'rsp_login_slug', [
+                'type'              => 'string',
+                'default'           => 'manager',
+                'sanitize_callback' => 'sanitize_title',
+            ]);
 
-        // AJAX — همراه با nonce + capability
-        add_action('wp_ajax_rsp_get_logs', [$this, 'ajax_get_logs']);
+            add_settings_section(
+                'rsp_login',
+                __('آدرس ورود سفارشی', 'ready-secure-pro'),
+                function () {
+                    echo '<p>' . esc_html__('پس از تغییر اسلاگ، یک‌بار پیوندهای یکتا را ذخیره کنید یا از دکمه «بازسازی پیوندهای یکتا» استفاده کنید.', 'ready-secure-pro') . '</p>';
+                },
+                'rsp_settings_login'
+            );
+
+            add_settings_field(
+                'rsp_login_slug',
+                __('اسلاگ ورود', 'ready-secure-pro'),
+                function () {
+                    echo '<input type="text" name="rsp_login_slug" value="' . esc_attr(get_option('rsp_login_slug', 'manager')) . '" />';
+                    echo '<p class="description">' . esc_html__('نمونه: manager', 'ready-secure-pro') . '</p>';
+                },
+                'rsp_settings_login',
+                'rsp_login'
+            );
+        });
+
+        // مپ تنظیمات به گروه‌های مستقل (override ماژول‌ها)
+        add_action('admin_init', [$this, 'map_settings_to_groups'], 999);
+
+        // AJAX
         add_action('wp_ajax_rsp_export_settings', [$this, 'ajax_export_settings']);
         add_action('wp_ajax_rsp_import_settings', [$this, 'ajax_import_settings']);
-        add_action('wp_ajax_rsp_scan_fs', [$this, 'ajax_scan_fs']);
-        add_action('wp_ajax_rsp_scan_integrity', [$this, 'ajax_scan_integrity']);
-        add_action('wp_ajax_rsp_scan_malware', [$this, 'ajax_scan_malware']);
+        add_action('wp_ajax_rsp_scan_integrity',  [$this, 'ajax_scan_integrity']);
+        add_action('wp_ajax_rsp_scan_malware',    [$this, 'ajax_scan_malware']);
+        add_action('wp_ajax_rsp_scan_fsperms',    [$this, 'ajax_scan_fsperms']);
+        add_action('wp_ajax_rsp_get_logs',        [$this, 'ajax_get_logs']);
+        add_action('wp_ajax_rsp_clear_logs',      [$this, 'ajax_clear_logs']);
+        add_action('wp_ajax_rsp_flush_rewrites',  [$this, 'ajax_flush_rewrites']);
     }
 
-    /** منو */
+    public function i18n() {
+        load_plugin_textdomain('ready-secure-pro', false, dirname(plugin_basename(__FILE__), 2) . '/languages');
+    }
+
     public function menu() {
         add_menu_page(
-            __('Ready Secure', 'ready-secure-pro'),
+            __('Ready Secure Pro', 'ready-secure-pro'),
             __('Ready Secure', 'ready-secure-pro'),
             'manage_options',
-            'ready-secure',
-            [$this, 'render_page'],
-            'dashicons-shield-alt',
-            58
+            'ready-secure-pro',
+            [$this, 'render'],
+            'dashicons-shield',
+            65
         );
     }
 
-    /** استایل/اسکریپت ادمین */
     public function assets($hook) {
-        if (strpos($hook, 'ready-secure') === false) return;
+        if ($hook !== 'toplevel_page_ready-secure-pro') return;
         wp_enqueue_style('rsp-admin', RSP_URL . 'assets/admin.css', [], RSP_VERSION);
         wp_enqueue_script('rsp-admin', RSP_URL . 'assets/admin.js', ['jquery'], RSP_VERSION, true);
-        wp_localize_script('rsp-admin', 'RSP_DATA', [
+        wp_localize_script('rsp-admin', 'RSP', [
             'ajax'  => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('rsp_nonce'),
         ]);
     }
 
-    /** گرد کردن دکمه‌ها + بهینه‌سازی تایپوگرافی */
-    public function inline_styles() {
-        $screen = get_current_screen();
-        if (!$screen || $screen->id !== 'toplevel_page_ready-secure') return;
-        echo '<style>
-            .rsp-wrap .button, .rsp-wrap .button-primary, .rsp-wrap .button-secondary { border-radius:8px !important; }
-            .rsp-wrap input[type=text], .rsp-wrap input[type=number], .rsp-wrap textarea, .rsp-wrap select { border-radius:10px; }
-        </style>';
+    /** نسبت‌دادن گزینه‌ها به گروه مستقل هر تب */
+    public function map_settings_to_groups() {
+        $bool = function($v){ return in_array($v, [1,'1','on','true',true], true) ? 1 : 0; };
+
+        // Brute Force
+        register_setting('rsp_settings_bf', 'rsp_bf_enable',     ['type'=>'boolean', 'default'=>1,  'sanitize_callback'=>$bool]);
+        register_setting('rsp_settings_bf', 'rsp_bf_max',        ['type'=>'integer', 'default'=>5,  'sanitize_callback'=>'absint']);
+        register_setting('rsp_settings_bf', 'rsp_bf_lock_min',   ['type'=>'integer', 'default'=>15, 'sanitize_callback'=>'absint']);
+        register_setting('rsp_settings_bf', 'rsp_bf_whitelist',  ['type'=>'string',  'default'=>'', 'sanitize_callback'=>'wp_kses_post']);
+
+        // WAF
+        register_setting('rsp_settings_waf', 'rsp_waf_enable',      ['type'=>'boolean','default'=>1,  'sanitize_callback'=>$bool]);
+        register_setting('rsp_settings_waf', 'rsp_waf_rate_window', ['type'=>'integer','default'=>60, 'sanitize_callback'=>'absint']);
+        register_setting('rsp_settings_waf', 'rsp_waf_rate_limit',  ['type'=>'integer','default'=>40, 'sanitize_callback'=>'absint']);
+        register_setting('rsp_settings_waf', 'rsp_waf_whitelist',   ['type'=>'string', 'default'=>'', 'sanitize_callback'=>'wp_kses_post']);
+
+        // REST & XML-RPC
+        register_setting('rsp_settings_xmlrpc_rest', 'rsp_rest_mode', ['type'=>'string','default'=>'restricted','sanitize_callback'=>function($v){
+            $v = (string)$v; return in_array($v, ['open','restricted','private'], true) ? $v : 'restricted';
+        }]);
+
+        // Headers
+        register_setting('rsp_settings_headers', 'rsp_headers_hsts',     ['type'=>'boolean','default'=>1,'sanitize_callback'=>$bool]);
+        register_setting('rsp_settings_headers', 'rsp_headers_referrer', ['type'=>'string', 'default'=>'no-referrer','sanitize_callback'=>'sanitize_text_field']);
+
+        // 404 + AntiSpam
+        register_setting('rsp_settings_404_antispam', 'rsp_404_enable',        ['type'=>'boolean','default'=>1,'sanitize_callback'=>$bool]);
+        register_setting('rsp_settings_404_antispam', 'rsp_404_threshold',     ['type'=>'integer','default'=>12,'sanitize_callback'=>'absint']);
+        register_setting('rsp_settings_404_antispam', 'rsp_404_window',        ['type'=>'integer','default'=>120,'sanitize_callback'=>'absint']);
+        register_setting('rsp_settings_404_antispam', 'rsp_404_lock_minutes',  ['type'=>'integer','default'=>30,'sanitize_callback'=>'absint']);
+
+        register_setting('rsp_settings_404_antispam', 'rsp_antispam_enable',   ['type'=>'boolean','default'=>1,'sanitize_callback'=>$bool]);
+        register_setting('rsp_settings_404_antispam', 'rsp_antispam_min_secs', ['type'=>'integer','default'=>8,'sanitize_callback'=>'absint']);
+        register_setting('rsp_settings_404_antispam', 'rsp_antispam_max_links',['type'=>'integer','default'=>2,'sanitize_callback'=>'absint']);
+
+        // فایل‌گارد و اسکن‌ها (برای نمایش وضعیت)
+        register_setting('rsp_settings_fs', 'rsp_file_guard_enable', ['type'=>'boolean','default'=>1,'sanitize_callback'=>$bool]);
+        register_setting('rsp_settings_scan', 'rsp_integrity_enable', ['type'=>'boolean','default'=>1,'sanitize_callback'=>$bool]);
     }
 
-    /** ثبت تنظیمات */
-    public function register_settings() {
-        // گروه واحد برای سادگی
-        $group = 'rsp_settings';
+    public function render() {
+        if (!current_user_can('manage_options')) return;
 
-        // ورود و Brute-Force
-        register_setting($group, 'rsp_login_slug', ['type'=>'string','sanitize_callback'=>'sanitize_title']);
-        register_setting($group, 'rsp_bruteforce_max', ['type'=>'integer','default'=>5]);
-        register_setting($group, 'rsp_bruteforce_lock_minutes', ['type'=>'integer','default'=>15]);
-        register_setting($group, 'rsp_bruteforce_whitelist', ['type'=>'string','default'=>'']);
-        register_setting($group, 'rsp_2fa_enforce_role', ['type'=>'string','default'=>'']);
+        settings_errors(); ?>
 
-        // هدرهای امنیتی
-        register_setting($group, 'rsp_headers_hsts', ['type'=>'boolean','default'=>1]);
-        register_setting($group, 'rsp_headers_mode', ['type'=>'string','default'=>'report-only']);
-        register_setting($group, 'rsp_headers_csp',  ['type'=>'string','default'=>"default-src 'self'; img-src 'self' data:;"]);
-
-        // WAF / Rate limit
-        register_setting($group, 'rsp_waf_enabled',   ['type'=>'boolean','default'=>1]);
-        register_setting($group, 'rsp_waf_rate_limit',['type'=>'integer','default'=>120]);
-        register_setting($group, 'rsp_waf_window',    ['type'=>'integer','default'=>60]);
-
-        // File Guard
-        register_setting($group, 'rsp_file_guard_disable_php_uploads', ['type'=>'boolean','default'=>1]);
-        register_setting($group, 'rsp_file_guard_auto_index', ['type'=>'boolean','default'=>1]);
-
-        // Smart 404
-        register_setting($group, 'rsp_404_enable',        ['type'=>'boolean','default'=>1]);
-        register_setting($group, 'rsp_404_threshold',     ['type'=>'integer','default'=>20]);
-        register_setting($group, 'rsp_404_window',        ['type'=>'integer','default'=>300]);
-        register_setting($group, 'rsp_404_block_minutes', ['type'=>'integer','default'=>60]);
-
-        // Anti-Spam
-        register_setting($group, 'rsp_antispam_enable',     ['type'=>'boolean','default'=>1]);
-        register_setting($group, 'rsp_antispam_min_seconds', ['type'=>'integer','default'=>5]);
-        register_setting($group, 'rsp_antispam_honeypot',    ['type'=>'boolean','default'=>1]);
-
-        // Content Protect
-        register_setting($group, 'rsp_content_protect_enable', ['type'=>'boolean','default'=>1]);
-    }
-
-    /** پروفایل: فیلد 2FA */
-    public function render_profile_2fa($user) { ?>
-        <h2><?php _e('Ready Secure 2FA', 'ready-secure-pro'); ?></h2>
-        <table class="form-table">
-            <tr>
-                <th><label for="rsp_totp_secret"><?php _e('TOTP Secret (Base32)', 'ready-secure-pro'); ?></label></th>
-                <td>
-                    <input type="text" name="rsp_totp_secret" id="rsp_totp_secret" value="<?php echo esc_attr(get_user_meta($user->ID,'rsp_totp_secret',true)); ?>" class="regular-text" />
-                    <p class="description"><?php _e('اگر خالی باشد، 2FA برای این کاربر فعال نیست.', 'ready-secure-pro'); ?></p>
-                    <p><a href="#" class="button" id="rsp-gen-secret"><?php _e('ساخت Secret', 'ready-secure-pro'); ?></a>
-                    <input type="text" readonly id="rsp-otpauth" class="regular-text" placeholder="otpauth://..." /></p>
-                    <script>
-                        (function(){
-                            function base32(len){const a='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let s='';for(let i=0;i<len;i++)s+=a[Math.floor(Math.random()*a.length)];return s;}
-                            document.getElementById('rsp-gen-secret').addEventListener('click', function(e){
-                                e.preventDefault();
-                                var sec = base32(32);
-                                document.getElementById('rsp_totp_secret').value = sec;
-                                var label = encodeURIComponent('<?php echo get_bloginfo('name'); ?>:<?php echo esc_js($user->user_login); ?>');
-                                var uri = 'otpauth://totp/'+label+'?secret='+sec+'&issuer='+encodeURIComponent('<?php echo get_bloginfo('name'); ?>');
-                                document.getElementById('rsp-otpauth').value = uri;
-                            });
-                        })();
-                    </script>
-                </td>
-            </tr>
-        </table>
-    <?php }
-
-    public function save_profile_2fa($user_id) {
-        if (!current_user_can('edit_user', $user_id)) return;
-        if (isset($_POST['rsp_totp_secret'])) {
-            update_user_meta($user_id, 'rsp_totp_secret', sanitize_text_field($_POST['rsp_totp_secret']));
-        }
-    }
-
-    /*** AJAX ***/
-    private function check_ajax_security() {
-        check_ajax_referer('rsp_nonce');
-        if (!current_user_can('manage_options')) wp_send_json_error('forbidden', 403);
-    }
-
-    public function ajax_get_logs() {
-        $this->check_ajax_security();
-        $logs = get_option('rsp_activity_log', []);
-        wp_send_json_success($logs);
-    }
-
-    public function ajax_export_settings() {
-        $this->check_ajax_security();
-        if (!function_exists('rsp_option_export')) wp_send_json_error('helper missing', 500);
-        wp_send_json_success(rsp_option_export());
-    }
-
-    public function ajax_import_settings() {
-        $this->check_ajax_security();
-        $json = isset($_POST['payload']) ? wp_unslash($_POST['payload']) : '';
-        $data = json_decode($json, true);
-        if (!is_array($data)) wp_send_json_error('invalid json');
-        foreach ($data as $k=>$v) {
-            if (strpos($k,'rsp_') === 0) update_option($k, $v);
-        }
-        wp_send_json_success(true);
-    }
-
-    public function ajax_scan_fs() {
-        $this->check_ajax_security();
-        if (class_exists('RSP_Module_FS_Permissions')) {
-            $m = new RSP_Module_FS_Permissions();
-            if (method_exists($m, 'scan_report')) {
-                $report = $m->scan_report();
-                do_action('rsp_activity_log','fs_scan',[]);
-                wp_send_json_success(['report'=>$report]);
-            }
-        }
-        wp_send_json_error('module not found');
-    }
-
-    public function ajax_scan_integrity() {
-        $this->check_ajax_security();
-        if (class_exists('RSP_Module_Integrity')) {
-            $m = new RSP_Module_Integrity();
-            if (method_exists($m, 'scan_core')) {
-                $res = $m->scan_core();
-                wp_send_json_success($res);
-            }
-        }
-        wp_send_json_error('module not found');
-    }
-
-    public function ajax_scan_malware() {
-        $this->check_ajax_security();
-        if (class_exists('RSP_Module_Malware')) {
-            $m = new RSP_Module_Malware();
-            if (method_exists($m, 'scan_quick')) {
-                $res = $m->scan_quick();
-                wp_send_json_success($res);
-            }
-        }
-        wp_send_json_error('module not found');
-    }
-
-    /** رندر داشبورد تب‌بندی‌شده */
-    public function render_page() { ?>
         <div class="rsp-wrap">
-            <div class="rsp-topbar">
+            <div class="rsp-header">
                 <div class="rsp-brand">
-                    <img class="rsp-logo-img" src="<?php echo esc_url( RSP_URL . 'assets/img/readystudio-logo.svg' ); ?>" alt="ReadyStudio" />
-                    <span class="rsp-name">Ready Secure</span>
-                    <span class="rsp-badge">Pro</span>
+                    <span class="rsp-logo">🛡️</span>
+                    <h1>Ready Secure Pro</h1>
+                    <span class="rsp-ver">v<?php echo esc_html(RSP_VERSION); ?></span>
                 </div>
-                <div class="rsp-ver"><?php echo esc_html( sprintf(__('نسخه %s','ready-secure-pro'), RSP_VERSION) ); ?></div>
+                <div class="rsp-actions">
+                    <button class="rsp-btn" id="rsp-export"><?php _e('خروجی تنظیمات','ready-secure-pro'); ?></button>
+                    <label class="rsp-btn"><?php _e('ورودی تنظیمات','ready-secure-pro'); ?><input type="file" id="rsp-import-file" accept="application/json" hidden></label>
+                </div>
             </div>
 
             <div class="rsp-tabs">
-                <button class="rsp-tab active" data-tab="overview"><?php _e('نمای کلی','ready-secure-pro'); ?></button>
-                <button class="rsp-tab" data-tab="login"><?php _e('ورود و Brute‑Force','ready-secure-pro'); ?></button>
-                <button class="rsp-tab" data-tab="headers"><?php _e('هدرها و هاردنینگ','ready-secure-pro'); ?></button>
-                <button class="rsp-tab" data-tab="waf"><?php _e('فایروال و فایل‌ها','ready-secure-pro'); ?></button>
-                <button class="rsp-tab" data-tab="smart404"><?php _e('مسدودسازی 404','ready-secure-pro'); ?></button>
-                <button class="rsp-tab" data-tab="antispam"><?php _e('ضد اسپم دیدگاه','ready-secure-pro'); ?></button>
-                <button class="rsp-tab" data-tab="scan"><?php _e('اسکن و سلامت','ready-secure-pro'); ?></button>
-                <button class="rsp-tab" data-tab="logs"><?php _e('لاگ و ابزارها','ready-secure-pro'); ?></button>
+                <button class="rsp-tab is-active" data-target="#tab-overview"><?php _e('نمای کلی','ready-secure-pro'); ?></button>
+                <button class="rsp-tab" data-target="#tab-login"><?php _e('ورود و دسترسی','ready-secure-pro'); ?></button>
+                <button class="rsp-tab" data-target="#tab-waf"><?php _e('فایروال / WAF','ready-secure-pro'); ?></button>
+                <button class="rsp-tab" data-target="#tab-guard"><?php _e('گارد 404 / ضداسپم','ready-secure-pro'); ?></button>
+                <button class="rsp-tab" data-target="#tab-scan"><?php _e('اسکن‌ها','ready-secure-pro'); ?></button>
+                <button class="rsp-tab" data-target="#tab-logs"><?php _e('لاگ‌ها','ready-secure-pro'); ?></button>
+                <button class="rsp-tab" data-target="#tab-help">❓ <?php _e('راهنما','ready-secure-pro'); ?></button>
             </div>
 
             <div class="rsp-panels">
                 <!-- Overview -->
-                <section class="rsp-panel show" id="tab-overview">
-                    <div class="rsp-grid">
-                        <div class="rsp-card stat">
-                            <h3><?php _e('وضعیت امنیتی سایت','ready-secure-pro'); ?></h3>
-                            <ul class="rsp-kv">
-                                <li><b><?php _e('آدرس ورود','ready-secure-pro'); ?>:</b> /<?php echo esc_html(get_option('rsp_login_slug','manager')); ?>/</li>
-                                <li><b>HSTS:</b> <?php echo get_option('rsp_headers_hsts',1)?'On':'Off'; ?></li>
-                                <li><b>CSP:</b> <?php echo esc_html(get_option('rsp_headers_mode','report-only')); ?></li>
-                                <li><b><?php _e('WAF','ready-secure-pro'); ?>:</b> <?php echo get_option('rsp_waf_enabled',1)?'Enabled':'Disabled'; ?></li>
-                                <li><b><?php _e('مسدودسازی 404','ready-secure-pro'); ?>:</b> <?php echo get_option('rsp_404_enable',1)?'On':'Off'; ?></li>
-                                <li><b><?php _e('آنتی‌اسپم دیدگاه','ready-secure-pro'); ?>:</b> <?php echo get_option('rsp_antispam_enable',1)?'On':'Off'; ?></li>
-                            </ul>
-                            <button type="button" class="button" id="rsp-run-integrity"><?php _e('اسکن هسته','ready-secure-pro'); ?></button>
-                            <button type="button" class="button" id="rsp-run-malware"><?php _e('اسکن بدافزار سریع','ready-secure-pro'); ?></button>
-                            <pre id="rsp-integrity-out" class="rsp-pre"></pre>
-                            <pre id="rsp-malware-out" class="rsp-pre"></pre>
+                <div class="rsp-panel is-active" id="tab-overview">
+                    <div class="rsp-card">
+                        <h3><?php _e('وضعیت سریع','ready-secure-pro'); ?></h3>
+                        <div class="rsp-status">
+                            <div class="item"><span><?php _e('آدرس ورود:','ready-secure-pro'); ?></span><code><?php echo esc_html(home_url('/'.get_option('rsp_login_slug','manager').'/')); ?></code></div>
+                            <div class="item"><span><?php _e('WAF فعال:','ready-secure-pro'); ?></span><strong><?php echo get_option('rsp_waf_enable',1)?__('بله','ready-secure-pro'):__('خیر','ready-secure-pro'); ?></strong></div>
+                            <div class="item"><span><?php _e('گارد 404:','ready-secure-pro'); ?></span><strong><?php echo get_option('rsp_404_enable',1)?__('بله','ready-secure-pro'):__('خیر','ready-secure-pro'); ?></strong></div>
+                            <div class="item"><span><?php _e('Brute Force:','ready-secure-pro'); ?></span><strong><?php echo get_option('rsp_bf_enable',1)?__('بله','ready-secure-pro'):__('خیر','ready-secure-pro'); ?></strong></div>
+                            <div class="item"><span><?php _e('File Guard:','ready-secure-pro'); ?></span><strong><?php echo get_option('rsp_file_guard_enable',1)?__('بله','ready-secure-pro'):__('خیر','ready-secure-pro'); ?></strong></div>
                         </div>
-                        <div class="rsp-card">
-                            <h3><?php _e('اجبار 2FA بر اساس نقش','ready-secure-pro'); ?></h3>
-                            <form method="post" action="options.php">
-                                <?php settings_fields('rsp_settings'); ?>
-                                <label><?php _e('نقش هدف (مثال: administrator)','ready-secure-pro'); ?></label>
-                                <input type="text" name="rsp_2fa_enforce_role" value="<?php echo esc_attr(get_option('rsp_2fa_enforce_role','')); ?>" />
-                                <?php submit_button(__('ذخیره','ready-secure-pro')); ?>
-                            </form>
-                            <p class="rsp-note"><?php _e('TOTP Secret هر کاربر در پروفایل او تنظیم می‌شود.','ready-secure-pro'); ?></p>
+                        <div style="margin-top:12px">
+                            <button class="rsp-btn" id="rsp-flush-rewrites"><?php _e('بازسازی پیوندهای یکتا','ready-secure-pro'); ?></button>
                         </div>
                     </div>
-                </section>
+                </div>
 
-                <!-- Login & Brute-Force -->
-                <section class="rsp-panel" id="tab-login">
-                    <div class="rsp-grid">
-                        <form method="post" action="options.php" class="rsp-card">
-                            <h3><?php _e('آدرس ورود','ready-secure-pro'); ?></h3>
-                            <?php settings_fields('rsp_settings'); ?>
-                            <label><?php _e('Slug صفحه ورود','ready-secure-pro'); ?></label>
-                            <input type="text" name="rsp_login_slug" value="<?php echo esc_attr(get_option('rsp_login_slug','manager')); ?>" />
-                            <p class="rsp-note"><?php _e('پس از تغییر، به تنظیمات پیوند یکتا رفته و ذخیره کنید.','ready-secure-pro'); ?></p>
-                            <?php submit_button(__('ذخیره','ready-secure-pro')); ?>
-                        </form>
-
-                        <form method="post" action="options.php" class="rsp-card">
-                            <h3><?php _e('محافظت Brute‑Force','ready-secure-pro'); ?></h3>
-                            <?php settings_fields('rsp_settings'); ?>
-                            <label><?php _e('حداکثر تلاش ناموفق','ready-secure-pro'); ?></label>
-                            <input type="number" name="rsp_bruteforce_max" value="<?php echo esc_attr(get_option('rsp_bruteforce_max',5)); ?>" />
-                            <label><?php _e('مدت قفل (دقیقه)','ready-secure-pro'); ?></label>
-                            <input type="number" name="rsp_bruteforce_lock_minutes" value="<?php echo esc_attr(get_option('rsp_bruteforce_lock_minutes',15)); ?>" />
-                            <label><?php _e('IP لیست سفید (هر خط یک IP)','ready-secure-pro'); ?></label>
-                            <textarea name="rsp_bruteforce_whitelist" rows="4" placeholder="127.0.0.1\n::1"><?php echo esc_textarea(get_option('rsp_bruteforce_whitelist','')); ?></textarea>
-                            <?php submit_button(__('ذخیره','ready-secure-pro')); ?>
-                        </form>
-                    </div>
-                </section>
-
-                <!-- Headers & Hardening -->
-                <section class="rsp-panel" id="tab-headers">
+                <!-- Login & Access -->
+                <div class="rsp-panel" id="tab-login">
                     <form method="post" action="options.php" class="rsp-card">
-                        <h3><?php _e('هدرهای امنیتی','ready-secure-pro'); ?></h3>
-                        <?php settings_fields('rsp_settings'); ?>
-                        <label><input type="checkbox" name="rsp_headers_hsts" value="1" <?php checked(get_option('rsp_headers_hsts',1),1); ?> /> <?php _e('فعال‌سازی HSTS','ready-secure-pro'); ?></label>
-                        <label><?php _e('حالت CSP','ready-secure-pro'); ?></label>
-                        <select name="rsp_headers_mode">
-                            <option value="report-only" <?php selected(get_option('rsp_headers_mode','report-only'),'report-only'); ?>>Report-Only</option>
-                            <option value="enforce" <?php selected(get_option('rsp_headers_mode','report-only'),'enforce'); ?>>Enforce</option>
-                        </select>
-                        <label><?php _e('قوانین CSP','ready-secure-pro'); ?></label>
-                        <textarea name="rsp_headers_csp" rows="6"><?php echo esc_textarea(get_option('rsp_headers_csp', "default-src 'self'; img-src 'self' data:;")); ?></textarea>
-                        <?php submit_button(__('ذخیره هدرها','ready-secure-pro')); ?>
+                        <?php
+                        settings_fields('rsp_settings_login');
+                        do_settings_sections('rsp_settings_login');
+                        submit_button(__('ذخیره تنظیمات ورود','ready-secure-pro'),'primary','submit',false,['class'=>'rsp-btn']); ?>
                     </form>
-                </section>
 
-                <!-- WAF & File Guard -->
-                <section class="rsp-panel" id="tab-waf">
-                    <div class="rsp-grid">
-                        <form method="post" action="options.php" class="rsp-card">
-                            <h3><?php _e('فایروال (WAF) و محدودسازی نرخ','ready-secure-pro'); ?></h3>
-                            <?php settings_fields('rsp_settings'); ?>
-                            <label><input type="checkbox" name="rsp_waf_enabled" value="1" <?php checked(get_option('rsp_waf_enabled',1),1); ?> /> <?php _e('فعال‌سازی WAF','ready-secure-pro'); ?></label>
-                            <label><?php _e('حداکثر درخواست در پنجره','ready-secure-pro'); ?></label>
-                            <input type="number" name="rsp_waf_rate_limit" value="<?php echo esc_attr(get_option('rsp_waf_rate_limit',120)); ?>" />
-                            <label><?php _e('طول پنجره (ثانیه)','ready-secure-pro'); ?></label>
-                            <input type="number" name="rsp_waf_window" value="<?php echo esc_attr(get_option('rsp_waf_window',60)); ?>" />
-                            <?php submit_button(__('ذخیره','ready-secure-pro')); ?>
-                        </form>
-
-                        <form method="post" action="options.php" class="rsp-card">
-                            <h3><?php _e('حفاظت از فایل‌ها (uploads)','ready-secure-pro'); ?></h3>
-                            <?php settings_fields('rsp_settings'); ?>
-                            <label><input type="checkbox" name="rsp_file_guard_disable_php_uploads" value="1" <?php checked(get_option('rsp_file_guard_disable_php_uploads',1),1); ?> /> <?php _e('غیرفعال کردن اجرای PHP در uploads','ready-secure-pro'); ?></label>
-                            <label><input type="checkbox" name="rsp_file_guard_auto_index" value="1" <?php checked(get_option('rsp_file_guard_auto_index',1),1); ?> /> <?php _e('ایجاد index.html در پوشه‌های حساس','ready-secure-pro'); ?></label>
-                            <?php submit_button(__('ذخیره','ready-secure-pro')); ?>
-                        </form>
-                    </div>
-                </section>
-
-                <!-- Smart 404 -->
-                <section class="rsp-panel" id="tab-smart404">
                     <form method="post" action="options.php" class="rsp-card">
-                        <h3><?php _e('مسدودسازی هوشمند 404','ready-secure-pro'); ?></h3>
-                        <?php settings_fields('rsp_settings'); ?>
-                        <label><input type="checkbox" name="rsp_404_enable" value="1" <?php checked(get_option('rsp_404_enable',1),1); ?> /> <?php _e('فعال','ready-secure-pro'); ?></label>
-                        <label><?php _e('حداکثر 404 در پنجره','ready-secure-pro'); ?></label>
-                        <input type="number" name="rsp_404_threshold" value="<?php echo esc_attr(get_option('rsp_404_threshold',20)); ?>" />
-                        <label><?php _e('طول پنجره (ثانیه)','ready-secure-pro'); ?></label>
-                        <input type="number" name="rsp_404_window" value="<?php echo esc_attr(get_option('rsp_404_window',300)); ?>" />
-                        <label><?php _e('مدت مسدودسازی (دقیقه)','ready-secure-pro'); ?></label>
-                        <input type="number" name="rsp_404_block_minutes" value="<?php echo esc_attr(get_option('rsp_404_block_minutes',60)); ?>" />
-                        <?php submit_button(__('ذخیره','ready-secure-pro')); ?>
+                        <?php
+                        settings_fields('rsp_settings_bf');
+                        do_settings_sections('rsp_settings_bf');
+                        submit_button(__('ذخیره تنظیمات Brute-Force','ready-secure-pro'),'primary','submit',false,['class'=>'rsp-btn']); ?>
                     </form>
-                </section>
+                </div>
 
-                <!-- Anti-Spam (دیدگاه) -->
-                <section class="rsp-panel" id="tab-antispam">
+                <!-- WAF / REST -->
+                <div class="rsp-panel" id="tab-waf">
                     <form method="post" action="options.php" class="rsp-card">
-                        <h3><?php _e('کاهش اسپم دیدگاه‌ها','ready-secure-pro'); ?></h3>
-                        <?php settings_fields('rsp_settings'); ?>
-                        <label><input type="checkbox" name="rsp_antispam_enable" value="1" <?php checked(get_option('rsp_antispam_enable',1),1); ?> /> <?php _e('فعال','ready-secure-pro'); ?></label>
-                        <label><?php _e('حداقل فاصله زمانی بین بارگذاری و ارسال (ثانیه)','ready-secure-pro'); ?></label>
-                        <input type="number" name="rsp_antispam_min_seconds" value="<?php echo esc_attr(get_option('rsp_antispam_min_seconds',5)); ?>" />
-                        <label><input type="checkbox" name="rsp_antispam_honeypot" value="1" <?php checked(get_option('rsp_antispam_honeypot',1),1); ?> /> <?php _e('فیلد هانی‌پات مخفی','ready-secure-pro'); ?></label>
-                        <?php submit_button(__('ذخیره','ready-secure-pro')); ?>
+                        <?php
+                        settings_fields('rsp_settings_waf');
+                        do_settings_sections('rsp_settings_waf');
+                        submit_button(__('ذخیره تنظیمات WAF','ready-secure-pro'),'primary','submit',false,['class'=>'rsp-btn']); ?>
                     </form>
-                </section>
 
-                <!-- Scan & Health -->
-                <section class="rsp-panel" id="tab-scan">
-                    <div class="rsp-grid">
-                        <div class="rsp-card">
-                            <h3><?php _e('اسکن سطح دسترسی فایل‌ها','ready-secure-pro'); ?></h3>
-                            <p class="rsp-note"><?php _e('چک سریع wp-config.php، wp-content و uploads','ready-secure-pro'); ?></p>
-                            <button type="button" class="button button-primary" id="rsp-scan-fs"><?php _e('اجرای اسکن','ready-secure-pro'); ?></button>
-                            <pre id="rsp-scan-output" class="rsp-pre"></pre>
-                        </div>
-                        <div class="rsp-card">
-                            <h3><?php _e('اسکن بدافزار','ready-secure-pro'); ?></h3>
-                            <button type="button" class="button" id="rsp-scan-malware"><?php _e('اسکن سریع','ready-secure-pro'); ?></button>
-                            <pre id="rsp-malware" class="rsp-pre"></pre>
-                        </div>
-                    </div>
-                </section>
+                    <form method="post" action="options.php" class="rsp-card">
+                        <?php
+                        settings_fields('rsp_settings_xmlrpc_rest');
+                        do_settings_sections('rsp_settings_xmlrpc_rest');
+                        submit_button(__('ذخیره تنظیمات REST/XML-RPC','ready-secure-pro'),'primary','submit',false,['class'=>'rsp-btn']); ?>
+                    </form>
+                </div>
 
-                <!-- Logs & Tools -->
-                <section class="rsp-panel" id="tab-logs">
-                    <div class="rsp-grid">
-                        <div class="rsp-card">
-                            <h3><?php _e('لاگ رویدادها','ready-secure-pro'); ?></h3>
-                            <button type="button" class="button" id="rsp-export-log">Export JSON</button>
-                            <pre id="rsp-log" class="rsp-pre"></pre>
-                        </div>
-                        <div class="rsp-card">
-                            <h3><?php _e('Export / Import تنظیمات','ready-secure-pro'); ?></h3>
-                            <button type="button" class="button" id="rsp-export-settings"><?php _e('Export Settings','ready-secure-pro'); ?></button>
-                            <textarea id="rsp-settings-json" class="rsp-textarea" rows="8" placeholder="{ ... }"></textarea>
-                            <button type="button" class="button button-primary" id="rsp-import-settings"><?php _e('Import Settings','ready-secure-pro'); ?></button>
-                            <pre id="rsp-settings-hint" class="rsp-pre"></pre>
-                        </div>
+                <!-- 404 Guard / Anti-Spam -->
+                <div class="rsp-panel" id="tab-guard">
+                    <form method="post" action="options.php" class="rsp-card">
+                        <?php
+                        settings_fields('rsp_settings_404_antispam');
+                        do_settings_sections('rsp_settings_404_antispam');
+                        submit_button(__('ذخیره','ready-secure-pro'),'primary','submit',false,['class'=>'rsp-btn']); ?>
+                    </form>
+                </div>
+
+                <!-- Scanners -->
+                <div class="rsp-panel" id="tab-scan">
+                    <div class="rsp-card">
+                        <h3><?php _e('اسکن یکپارچگی هسته','ready-secure-pro'); ?></h3>
+                        <button class="rsp-btn" id="rsp-scan-integrity"><?php _e('اجرای اسکن','ready-secure-pro'); ?></button>
+                        <pre id="rsp-out-integrity"></pre>
                     </div>
-                </section>
+                    <div class="rsp-card">
+                        <h3><?php _e('اسکن بدافزار (سریع)','ready-secure-pro'); ?></h3>
+                        <button class="rsp-btn" id="rsp-scan-malware"><?php _e('اجرای اسکن','ready-secure-pro'); ?></button>
+                        <pre id="rsp-out-malware"></pre>
+                    </div>
+                    <div class="rsp-card">
+                        <h3><?php _e('اسکن سطح دسترسی فایل/پوشه','ready-secure-pro'); ?></h3>
+                        <button class="rsp-btn" id="rsp-scan-fs"><?php _e('اجرای اسکن','ready-secure-pro'); ?></button>
+                        <pre id="rsp-out-fs"></pre>
+                    </div>
+                </div>
+
+                <!-- Logs -->
+                <div class="rsp-panel" id="tab-logs">
+                    <div class="rsp-card">
+                        <h3><?php _e('لاگ رویدادها','ready-secure-pro'); ?></h3>
+                        <div class="rsp-actions" style="margin-bottom:10px">
+                            <button class="rsp-btn success" id="rsp-refresh-logs"><?php _e('به‌روزرسانی','ready-secure-pro'); ?></button>
+                            <button class="rsp-btn danger" id="rsp-clear-logs"><?php _e('حذف لاگ‌ها','ready-secure-pro'); ?></button>
+                        </div>
+                        <pre id="rsp-out-logs"></pre>
+                    </div>
+                </div>
+
+                <!-- Help -->
+                <div class="rsp-panel" id="tab-help">
+                    <div class="rsp-card">
+                        <h3>راهنمای سریع استفاده</h3>
+                        <ol>
+                            <li><strong>ورود و دسترسی:</strong> اسلاگ ورود را تنظیم کن (پیش‌فرض <code>manager</code>) و سپس «بازسازی پیوندهای یکتا» را بزن.</li>
+                            <li><strong>فایروال (WAF):</strong> WAF را فعال کن؛ اگر پشت CDN هستی، IPهای مدیریتی یا عبارت‌های User-Agent معتبر را در Whitelist بنویس.</li>
+                            <li><strong>گارد 404 / ضداسپم:</strong> آستانهٔ منطقی تعیین کن (مثلاً 12 خطا در 120 ثانیه، قفل 30 دقیقه) و ضداسپم دیدگاه را روشن بگذار.</li>
+                            <li><strong>اسکن‌ها:</strong> یک‌بار اسکن یکپارچگی و بدافزار را اجرا کن؛ نتیجه در لاگ‌ها ذخیره می‌شود.</li>
+                        </ol>
+                        <div class="rsp-sep"></div>
+                        <h3>تنظیمات پیشنهادی (پروفایل‌ها)</h3>
+                        <p>با یک کلیک مقادیر پیشنهادی زیر اعمال می‌شوند. هر زمان بخواهی می‌توانی دستی تغییرشان بدهی.</p>
+                        <div class="rsp-actions">
+                            <button class="rsp-btn" data-rsp-apply="default">اعمال پروفایل: عمومی (پیشنهادی)</button>
+                            <button class="rsp-btn" data-rsp-apply="cdn">اعمال پروفایل: فروشگاهی/پربازدید (CDN)</button>
+                            <button class="rsp-btn" data-rsp-apply="strict">اعمال پروفایل: امنیت بالا</button>
+                        </div>
+                        <ul class="rsp-list" style="margin-top:10px">
+                            <li>عمومی: WAF روشن، پنجره ۶۰ثانیه/حد ۶۰ درخواست، REST حالت <code>restricted</code>، 404 (۱۲/۱۲۰ثانیه/۳۰دقیقه)، ضداسپم (۸ثانیه/۲ لینک)، Brute Force (۵ تلاش/قفل ۱۵دقیقه).</li>
+                            <li>فروشگاهی/CDN: WAF روشن با حد ۱۲۰، آستانهٔ 404=۲۰ و قفل ۱۵دقیقه، ضداسپم (۵ثانیه/۳ لینک).</li>
+                            <li>امنیت بالا: WAF حد ۳۰، REST= <code>private</code>، 404 (۸/۹۰ثانیه/۶۰دقیقه)، Brute Force (۳ تلاش/۳۰ دقیقه).</li>
+                        </ul>
+                        <div class="rsp-sep"></div>
+                        <h3>نکات سازگاری</h3>
+                        <ul class="rsp-list">
+                            <li>HSTS فقط روی HTTPS اعمال می‌شود.</li>
+                            <li>اگر پشت CDN هستی، هدر <code>CF-Connecting-IP</code> فعال باشد تا شناسایی IP دقیق شود.</li>
+                            <li>در صورت بروز خطای مثبت کاذب، مسیر/UA را در Whitelist بنویس یا حد WAF را کمی بالاتر ببر.</li>
+                        </ul>
+                    </div>
+
+                    <!-- اسکریپت سبک اعمال پروفایل‌ها (بدون نیاز به ویرایش admin.js) -->
+                    <script>
+                    (function(){
+                        function sendProfile(payload){
+                            if(!window.RSP){ alert('Ajax not ready'); return; }
+                            if(!confirm('آیا از اعمال تنظیمات پیشنهادی مطمئن هستید؟')) return;
+                            fetch(RSP.ajax + '?action=rsp_import_settings&_ajax_nonce=' + encodeURIComponent(RSP.nonce), {
+                                method: 'POST',
+                                headers: {'Content-Type':'application/json'},
+                                body: JSON.stringify(payload)
+                            }).then(r=>r.json()).then(function(res){
+                                if(res && res.success){
+                                    alert('تنظیمات اعمال شد. صفحه رفرش می‌شود.');
+                                    location.reload();
+                                }else{
+                                    alert('خطا در اعمال تنظیمات.');
+                                }
+                            }).catch(function(){ alert('خطای شبکه.'); });
+                        }
+
+                        var profiles = {
+                            "default": {
+                                "rsp_waf_enable":1, "rsp_waf_rate_window":60, "rsp_waf_rate_limit":60, "rsp_waf_whitelist":"",
+                                "rsp_rest_mode":"restricted",
+                                "rsp_404_enable":1, "rsp_404_threshold":12, "rsp_404_window":120, "rsp_404_lock_minutes":30,
+                                "rsp_antispam_enable":1, "rsp_antispam_min_secs":8, "rsp_antispam_max_links":2,
+                                "rsp_bf_enable":1, "rsp_bf_max":5, "rsp_bf_lock_min":15,
+                                "rsp_file_guard_enable":1, "rsp_headers_hsts":1, "rsp_headers_referrer":"no-referrer"
+                            },
+                            "cdn": {
+                                "rsp_waf_enable":1, "rsp_waf_rate_window":60, "rsp_waf_rate_limit":120, "rsp_waf_whitelist":"",
+                                "rsp_rest_mode":"restricted",
+                                "rsp_404_enable":1, "rsp_404_threshold":20, "rsp_404_window":120, "rsp_404_lock_minutes":15,
+                                "rsp_antispam_enable":1, "rsp_antispam_min_secs":5, "rsp_antispam_max_links":3,
+                                "rsp_bf_enable":1, "rsp_bf_max":5, "rsp_bf_lock_min":10,
+                                "rsp_file_guard_enable":1, "rsp_headers_hsts":1, "rsp_headers_referrer":"strict-origin-when-cross-origin"
+                            },
+                            "strict": {
+                                "rsp_waf_enable":1, "rsp_waf_rate_window":60, "rsp_waf_rate_limit":30, "rsp_waf_whitelist":"",
+                                "rsp_rest_mode":"private",
+                                "rsp_404_enable":1, "rsp_404_threshold":8, "rsp_404_window":90, "rsp_404_lock_minutes":60,
+                                "rsp_antispam_enable":1, "rsp_antispam_min_secs":10, "rsp_antispam_max_links":1,
+                                "rsp_bf_enable":1, "rsp_bf_max":3, "rsp_bf_lock_min":30,
+                                "rsp_file_guard_enable":1, "rsp_headers_hsts":1, "rsp_headers_referrer":"no-referrer"
+                            }
+                        };
+
+                        document.addEventListener('click', function(ev){
+                            var el = ev.target.closest('[data-rsp-apply]');
+                            if(!el) return;
+                            var key = el.getAttribute('data-rsp-apply');
+                            if(profiles[key]) sendProfile(profiles[key]);
+                        });
+                    })();
+                    </script>
+                </div>
             </div>
         </div>
-    <?php }
+        <?php
+    }
+
+    /** امنیت AJAX */
+    private function check_ajax() {
+        check_ajax_referer('rsp_nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error('forbidden', 403);
+    }
+
+    /* ===== AJAX ===== */
+
+    public function ajax_export_settings() {
+        $this->check_ajax();
+        if (!function_exists('rsp_option_export')) wp_send_json_error('no_helper',400);
+        wp_send_json_success(rsp_option_export());
+    }
+
+    public function ajax_import_settings() {
+        $this->check_ajax();
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true);
+        if (!$data) wp_send_json_error('bad_json',400);
+
+        // Only accept whitelisted rsp_* keys
+        $safe = [];
+        foreach ((array)$data as $k=>$v) {
+            if (is_string($k) && strpos($k,'rsp_')===0) $safe[$k]=$v;
+        }
+        if (!function_exists('rsp_option_import')) {
+            // حداقل اعمال کن اگر هِلوِر نبود
+            foreach ($safe as $k=>$v) update_option($k,$v);
+            wp_send_json_success(['ok'=>1,'fallback'=>1]);
+        } else {
+            rsp_option_import($safe);
+            wp_send_json_success(['ok'=>1]);
+        }
+    }
+
+    public function ajax_scan_integrity() {
+        $this->check_ajax();
+        if (!class_exists('RSP_Module_Integrity')) wp_send_json_error('no_integrity');
+        $m = new RSP_Module_Integrity();
+        wp_send_json_success($m->scan());
+    }
+
+    public function ajax_scan_malware() {
+        $this->check_ajax();
+        if (!class_exists('RSP_Module_Malware_Scanner')) wp_send_json_error('no_scanner');
+        $m = new RSP_Module_Malware_Scanner();
+        wp_send_json_success($m->scan_quick());
+    }
+
+    public function ajax_scan_fsperms() {
+        $this->check_ajax();
+        if (!class_exists('RSP_Module_FS_Permissions')) wp_send_json_error('no_fs');
+        $m = new RSP_Module_FS_Permissions();
+        wp_send_json_success($m->scan());
+    }
+
+    public function ajax_get_logs() {
+        $this->check_ajax();
+        global $wpdb;
+        $t = $wpdb->prefix . 'rsp_logs';
+        $rows = $wpdb->get_results("SELECT * FROM $t ORDER BY id DESC LIMIT 200", ARRAY_A);
+        if (!$rows) $rows = get_option('rsp_activity_log', []);
+        wp_send_json_success($rows);
+    }
+
+    public function ajax_clear_logs() {
+        $this->check_ajax();
+        global $wpdb;
+        $wpdb->query("TRUNCATE TABLE " . $wpdb->prefix . "rsp_logs");
+        delete_option('rsp_activity_log');
+        wp_send_json_success(['ok'=>1]);
+    }
+
+    public function ajax_flush_rewrites() {
+        $this->check_ajax();
+        flush_rewrite_rules(false);
+        wp_send_json_success(['ok'=>1]);
+    }
 }

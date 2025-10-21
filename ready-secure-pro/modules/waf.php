@@ -2,155 +2,241 @@
 if (!defined('ABSPATH')) { exit; }
 
 /**
- * ماژول: فایروال سبک (WAF) + محدودسازی نرخ درخواست
- * - بازرسی ورودی‌ها برای الگوهای رایج SQLi/XSS/LFI/RCE
- * - Rate Limit برای مسیرهای حساس (wp-login.php, xmlrpc.php, admin-ajax.php, REST)
- * - لیست سفید IP و مسیرها با فیلترها
- * - ثبت رویدادها در لاگ مرکزی (waf_block, rate_limit)
- *
- * گزینه‌ها (Options)
- *  - rsp_waf_enabled      (bool)
- *  - rsp_waf_rate_limit   (int)  تعداد درخواست مجاز در پنجره برای کلاینت ناشناس
- *  - rsp_waf_window       (int)  طول پنجره بر حسب ثانیه
+ * Ready Secure Pro - WAF
+ * v2.4.1
+ * - تنظیمات روی صفحه‌ی صحیح rsp_settings_waf
+ * - پنل همیشه نمایش داده می‌شود؛ اجرای فایروال فقط وقتی فعال است
+ * - پشتیبانی Whitelist (IP/CIDR یا User-Agent)
+ * - Rate-limit جدا برای login/xmlrpc/rest
+ * - کاهش False-Positive با بررسی نوع محتوا و سقف اندازه بدنۀ درخواست
  */
-class RSP_Module_WAF implements RSP_Module_Interface {
-
+class RSP_Module_WAF implements RSP_Module_Interface
+{
     public function init() {
-        // بازرسی خیلی زود انجام شود
-        add_action('init', [$this, 'inspect'], 0);
+        // پنل تنظیمات همیشه حاضر باشد
+        add_action('admin_init', [$this, 'settings']);
+
+        // اجرای WAF فقط هنگام فعال‌بودن
+        if (get_option('rsp_waf_enable', 1)) {
+            add_action('init', [$this, 'inspect'], 0);
+        }
     }
 
-    /** اجرای WAF */
-    public function inspect() {
-        if (!get_option('rsp_waf_enabled', 1)) return;
+    /* ---------------- Settings UI ---------------- */
 
-        // نادیده گرفتن درخواست‌های ادمین لاگین‌کرده برای جلوگیری از تداخل مدیریتی
-        if (is_user_logged_in() && current_user_can('manage_options')) return;
+    public function settings() {
+        // گروه تنظیمات اختصاصی این تب (سازگار با class-admin.php)
+        register_setting('rsp_settings_waf', 'rsp_waf_enable', [
+            'type' => 'boolean', 'default' => 1,
+            'sanitize_callback' => function($v){ return in_array($v, [1,'1','on','true',true], true) ? 1 : 0; }
+        ]);
+        register_setting('rsp_settings_waf', 'rsp_waf_rate_window', [
+            'type' => 'integer', 'default' => 60, 'sanitize_callback' => 'absint'
+        ]);
+        register_setting('rsp_settings_waf', 'rsp_waf_rate_limit', [
+            'type' => 'integer', 'default' => 40, 'sanitize_callback' => 'absint'
+        ]);
+        register_setting('rsp_settings_waf', 'rsp_waf_whitelist', [
+            'type' => 'string', 'default' => '', 'sanitize_callback' => 'wp_kses_post'
+        ]);
 
-        $ip  = $this->client_ip();
-        $uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
-        $ua  = isset($_SERVER['HTTP_USER_AGENT']) ? substr($_SERVER['HTTP_USER_AGENT'], 0, 190) : '';
+        // سکشن روی صفحه صحیح
+        add_settings_section(
+            'rsp_waf_section',
+            __('فایروال برنامه (WAF)', 'ready-secure-pro'),
+            function () {
+                echo '<p>' . esc_html__('تشخیص الگوهای رایج XSS/SQLi/LFI و محدودسازی نرخ درخواست مسیرهای حساس. برای کاهش خطای مثبت کاذب می‌توانید IP/CIDR یا بخشی از User-Agent را whitelist کنید (هر خط یک مورد).', 'ready-secure-pro') . '</p>';
+            },
+            'rsp_settings_waf'
+        );
 
-        // لیست سفید IP از گزینه BruteForce (در صورت استفاده) + فیلتر سفارشی
-        if ($this->is_ip_whitelisted($ip)) return;
+        // فیلد: فعال‌سازی
+        add_settings_field(
+            'rsp_waf_enable',
+            __('فعال باشد؟', 'ready-secure-pro'),
+            function () {
+                $v = get_option('rsp_waf_enable', 1);
+                echo '<label><input type="checkbox" name="rsp_waf_enable" value="1" ' . checked($v, 1, false) . '> ' .
+                     esc_html__('فعال‌سازی WAF', 'ready-secure-pro') . '</label>';
+            },
+            'rsp_settings_waf',
+            'rsp_waf_section'
+        );
 
-        // مسیرهای مجاز از طریق فیلتر (مثلاً وبهوک‌ها)
-        $allow_paths = apply_filters('rsp_waf_allow_paths', [ '/wp-cron.php' ]);
-        foreach ((array)$allow_paths as $p) { if (strpos($uri, $p) !== false) return; }
+        // فیلد: پنجره زمانی ریت‌لیمیت
+        add_settings_field(
+            'rsp_waf_rate_window',
+            __('پنجره زمانی (ثانیه)', 'ready-secure-pro'),
+            function () {
+                $v = (int) get_option('rsp_waf_rate_window', 60);
+                echo '<input type="number" min="10" step="10" name="rsp_waf_rate_window" value="' . esc_attr($v) . '">';
+                echo '<p class="description">' . esc_html__('مثلاً 60 ثانیه', 'ready-secure-pro') . '</p>';
+            },
+            'rsp_settings_waf',
+            'rsp_waf_section'
+        );
 
-        // محدودسازی نرخ برای ناشناس‌ها روی مسیرهای حساس
-        if (!$this->is_logged_in_request()) {
-            if ($this->is_rate_limited_target($uri)) {
-                if ($this->rate_limit_exceeded($ip)) {
-                    do_action('rsp_activity_log','rate_limit',[ 'ip'=>$ip, 'uri'=>esc_url_raw($uri), 'ua'=>$ua ]);
-                    return $this->deny(429, __('درخواست‌های بسیار زیاد. بعداً تلاش کنید.', 'ready-secure-pro'));
-                }
+        // فیلد: سقف درخواست در هر پنجره
+        add_settings_field(
+            'rsp_waf_rate_limit',
+            __('حداکثر درخواست در پنجره', 'ready-secure-pro'),
+            function () {
+                $v = (int) get_option('rsp_waf_rate_limit', 40);
+                echo '<input type="number" min="5" step="5" name="rsp_waf_rate_limit" value="' . esc_attr($v) . '">';
+                echo '<p class="description">' . esc_html__('اگر از CDN/پراکسی استفاده می‌کنید، مقادیر منطقی‌تری انتخاب کنید.', 'ready-secure-pro') . '</p>';
+            },
+            'rsp_settings_waf',
+            'rsp_waf_section'
+        );
+
+        // فیلد: whitelist
+        add_settings_field(
+            'rsp_waf_whitelist',
+            __('Whitelist IP/User-Agent', 'ready-secure-pro'),
+            function () {
+                $v = (string) get_option('rsp_waf_whitelist', '');
+                echo '<textarea name="rsp_waf_whitelist" rows="4" style="width:100%;max-width:640px;">' . esc_textarea($v) . '</textarea>';
+                echo '<p class="description">' .
+                     esc_html__('هر خط یک مورد: 1) IP مثل 192.0.2.10  2) CIDR مثل 203.0.113.0/24  3) عبارت User-Agent مثل "Googlebot".', 'ready-secure-pro') .
+                     '</p>';
+            },
+            'rsp_settings_waf',
+            'rsp_waf_section'
+        );
+    }
+
+    /* ---------------- Core WAF logic ---------------- */
+
+    private function ip() {
+        if (function_exists('rsp_client_ip')) return rsp_client_ip();
+        return isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
+    }
+
+    /** بررسی در لیست سفید: IP یا CIDR یا UA substring */
+    private function is_whitelisted() {
+        $list = (string) get_option('rsp_waf_whitelist', '');
+        if ($list === '') return false;
+
+        $ip = $this->ip();
+        $ua = isset($_SERVER['HTTP_USER_AGENT']) ? (string) $_SERVER['HTTP_USER_AGENT'] : '';
+
+        foreach (preg_split('/\r?\n/', $list) as $ln) {
+            $ln = trim($ln);
+            if ($ln === '') continue;
+
+            // اول: CIDR یا IP
+            if (filter_var($ln, FILTER_VALIDATE_IP)) {
+                if (strcasecmp($ln, $ip) === 0) return true;
+                continue;
+            }
+            if (strpos($ln, '/') !== false && function_exists('rsp_ip_in_cidr')) {
+                if (rsp_ip_in_cidr($ip, $ln)) return true;
+                continue;
+            }
+
+            // بعد: User-Agent substring (حساس‌نبودن به حروف)
+            if ($ua && stripos($ua, $ln) !== false) return true;
+        }
+        return false;
+    }
+
+    private function deny($why = 'waf') {
+        status_header(403);
+        header('X-RSP-Block: waf');
+        do_action('rsp_activity_log', 'waf_block', [
+            'ip'  => $this->ip(),
+            'why' => $why,
+            'uri' => isset($_SERVER['REQUEST_URI']) ? substr((string)$_SERVER['REQUEST_URI'], 0, 300) : '',
+        ]);
+        exit;
+    }
+
+    private function rate_key($ip, $bucket, $route) {
+        return 'rsp_waf_rate_' . md5($ip . '|' . $bucket . '|' . $route);
+    }
+
+    /** تشخیص مسیر حساس: login/xmlrpc/rest */
+    private function route_kind() {
+        $uri  = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $path = $uri ? (string) parse_url($uri, PHP_URL_PATH) : '';
+        $qs   = isset($_SERVER['QUERY_STRING']) ? (string) $_SERVER['QUERY_STRING'] : '';
+
+        // custom login slug
+        $slug = trim((string) get_option('rsp_login_slug', 'manager'));
+        $login_custom = '/' . ltrim($slug, '/') . '/';
+
+        if ($path && (stripos($path, 'wp-login.php') !== false || $path === $login_custom || rtrim($path, '/') === rtrim($login_custom, '/'))) {
+            return 'login';
+        }
+        if ($path && stripos($path, 'xmlrpc.php') !== false) {
+            return 'xmlrpc';
+        }
+        if ($qs && stripos($qs, 'rest_route=') !== false) {
+            return 'rest';
+        }
+        return '';
+    }
+
+    /** بررسی الگوهای خطرناک با محدودیت اندازه و نوع محتوا */
+    private function match_suspicious($haystack) {
+        // الگوها محتاطانه انتخاب شده‌اند
+        $patterns = [
+            '/<\s*script\b/i',
+            '/onerror\s*=/i',
+            '/onload\s*=/i',
+            '/union\s+select/i',
+            '/sleep\s*\(/i',
+            '/load_file\s*\(/i',
+            '/benchmark\s*\(/i',
+            '/\.\.\/\.\.\//i',       // traversal
+        ];
+        foreach ($patterns as $re) {
+            if (@preg_match($re, $haystack)) {
+                return $re;
             }
         }
-
-        // اسکن محتوای درخواست برای الگوهای مخرب
-        $haystack = $this->make_haystack();
-        if ($this->matches_attack($haystack)) {
-            do_action('rsp_activity_log','waf_block',[ 'ip'=>$ip, 'uri'=>esc_url_raw($uri), 'ua'=>$ua ]);
-            return $this->deny(403, __('دسترسی به دلیل محتوای درخواست مشکوک محدود شد.', 'ready-secure-pro'));
-        }
+        return false;
     }
 
-    /**
-     * ساخت رشتهٔ بازرسی از URL, Query, Body (با محدودیت اندازه)
-     */
-    private function make_haystack() {
-        $max = 100000; // 100KB کافی است
-        $url  = isset($_SERVER['REQUEST_URI']) ? (string)$_SERVER['REQUEST_URI'] : '';
-        $q    = isset($_SERVER['QUERY_STRING']) ? (string)$_SERVER['QUERY_STRING'] : '';
+    public function inspect() {
+        if (is_user_logged_in() && current_user_can('manage_options')) return;
+        if ($this->is_whitelisted()) return;
+
+        $uri  = isset($_SERVER['REQUEST_URI'])  ? (string) $_SERVER['REQUEST_URI']  : '';
+        $qs   = isset($_SERVER['QUERY_STRING']) ? (string) $_SERVER['QUERY_STRING'] : '';
         $body = '';
-        // فقط برای متدهای دارای بادی
-        $method = isset($_SERVER['REQUEST_METHOD']) ? strtoupper($_SERVER['REQUEST_METHOD']) : 'GET';
-        if (in_array($method, ['POST','PUT','PATCH'], true)) {
+
+        // فقط با نوع محتوای قابل‌تحلیل و سقف حجم منطقی
+        $ctype = isset($_SERVER['CONTENT_TYPE']) ? strtolower((string)$_SERVER['CONTENT_TYPE']) : '';
+        $len   = isset($_SERVER['CONTENT_LENGTH']) ? (int) $_SERVER['CONTENT_LENGTH'] : 0;
+        if ($len > 0 && $len <= 65536 && ($ctype === '' || strpos($ctype, 'application/x-www-form-urlencoded') !== false || strpos($ctype, 'application/json') !== false)) {
             $raw = @file_get_contents('php://input');
-            if (is_string($raw)) $body = substr($raw, 0, $max);
+            if (is_string($raw)) $body = substr($raw, 0, 65536);
         }
-        // نرمال‌سازی: lower + urldecode محافظه‌کارانه
-        $mix = strtolower($url.' '.$q.' '.$body);
-        $mix = preg_replace('/%([0-9a-f]{2})/i', function($m){
-            $c = chr(hexdec($m[1]));
-            return ctype_print($c) ? $c : $m[0];
-        }, $mix);
-        return $mix;
-    }
 
-    /** آیا مقصد نیازمند RateLimit است؟ */
-    private function is_rate_limited_target($uri) {
-        $targets = apply_filters('rsp_waf_rate_targets', [
-            'wp-login.php',
-            'xmlrpc.php',
-            'admin-ajax.php',
-            '/wp-json/',
-        ]);
-        foreach ((array)$targets as $t) {
-            if (strpos($uri, $t) !== false) return true;
+        // 1) الگوهای خطرناک
+        $hay = $uri . ' ' . $qs . ' ' . $body;
+        $hit = $this->match_suspicious($hay);
+        if ($hit !== false) {
+            $this->deny('pattern');
         }
-        return false;
-    }
 
-    /** Rate Limit بر اساس IP و پنجرهٔ زمانی */
-    private function rate_limit_exceeded($ip) {
-        $limit = max(30, (int) get_option('rsp_waf_rate_limit', 120));
-        $win   = max(10, (int) get_option('rsp_waf_window', 60));
-        $bucket= (int) floor(time() / $win);
-        $key   = 'rsp_waf_rl_' . md5($ip.'|'.$bucket);
-        $count = (int) get_transient($key);
-        $count++;
-        set_transient($key, $count, $win);
-        return ($count > $limit);
-    }
+        // 2) Rate-limit روی مسیرهای حساس
+        $route = $this->route_kind();
+        if ($route !== '') {
+            $ip  = $this->ip();
+            $win = max(10, (int) get_option('rsp_waf_rate_window', 60));
+            $lim = max(5,  (int) get_option('rsp_waf_rate_limit', 40));
 
-    /** تشخیص حملات رایج */
-    private function matches_attack($mix) {
-        // الگوها: SQLi / XSS / LFI / RCE / Path traversal / header injection
-        $patterns = [
-            // SQLi
-            'union select', '/*!union*/select', ' or 1=1', "' or '1'='1", ' information_schema ', 'load_file(', 'into outfile', 'sleep(', 'benchmark(',
-            // XSS
-            '<script', '%3cscript', ' onerror=', ' onload=', 'javascript:', 'data:text/html',
-            // LFI / traversal
-            '../', '..%2f', '%2e%2e/', 'etc/passwd', 'proc/self/environ',
-            // RCE vectors
-            'php://input', 'php://filter', 'expect://', 'system(', 'exec(', 'shell_exec(', 'passthru(', 'popen(', 'proc_open(',
-            // header split
-            "\r\n", '%0d%0a',
-        ];
-        foreach ($patterns as $p) {
-            if ($p === "\r\n") { if (strpos($mix, "\r\n") !== false) return true; continue; }
-            if (strpos($mix, $p) !== false) return true;
+            $bucket = 'b' . intdiv(time(), $win);
+            $key    = $this->rate_key($ip, $bucket, $route);
+
+            $n = (int) get_transient($key);
+            $n++;
+            set_transient($key, $n, $win);
+            if ($n > $lim) {
+                $this->deny('rate-limit:' . $route);
+            }
         }
-        // regex برای الگوهای فشرده/ encoded
-        $regexes = [
-            '/(<\\/?)[a-z0-9\\-]+\\s+on[a-z]+=/i',                // any on*=
-            '/%3c[a-z0-9]+%20on[a-z]+%3d/i',                           // url-encoded on*
-            '/%00|\\x00|\\u0000/i',                                  // null byte
-            '/(?:\n|\r)content-\w+:/i',                             // header injection
-        ];
-        foreach ($regexes as $re) { if (preg_match($re, $mix)) return true; }
-        return false;
-    }
-
-    /** پاسخ امن */
-    private function deny($status = 403, $msg = '') {
-        if (!headers_sent()) { status_header($status); nocache_headers(); }
-        if ($msg === '') $msg = ($status === 429) ? __('تعداد درخواست زیاد است.', 'ready-secure-pro') : __('دسترسی غیرمجاز.', 'ready-secure-pro');
-        wp_die( esc_html($msg), $status );
-    }
-
-    /** ابزارها */
-    private function client_ip() { return function_exists('rsp_client_ip') ? rsp_client_ip() : (isset($_SERVER['REMOTE_ADDR'])? $_SERVER['REMOTE_ADDR'] : ''); }
-    private function is_logged_in_request() { return is_user_logged_in(); }
-
-    private function is_ip_whitelisted($ip) {
-        // از گزینهٔ whitelist ماژول BruteForce نیز استفاده می‌کنیم
-        $opt = (string) get_option('rsp_bruteforce_whitelist', '');
-        $list = array_filter(array_map('trim', preg_split('/\r?\n/', $opt)));
-        $allow_ips = apply_filters('rsp_waf_ip_whitelist', $list);
-        return in_array($ip, (array)$allow_ips, true);
     }
 }

@@ -1,110 +1,37 @@
 <?php
 if (!defined('ABSPATH')) { exit; }
-
-/**
- * ماژول: امنیت کامل ورود (Login URL سفارشی + مسدودسازی wp-login.php)
- * - اسلاگ سفارشی برای صفحه ورود (گزینه: rsp_login_slug؛ پیش‌فرض: manager)
- * - رندر ورود از مسیر مجازی /{slug}/ بدون برهم‌زدن منطق اصلی وردپرس (require wp-login.php)
- * - مسدودسازی دسترسی مستقیم به wp-login.php (به‌جز اکشن‌های ضروری: logout, lostpassword, resetpass, rp, postpass)
- * - یکسان‌سازی لینک‌های ورود (فیلترهای login_url / site_url / network_site_url)
- * - پشتیبانی از Rewrite Rule + Fallback (بدون نیاز به flush فوری)
- */
 class RSP_Module_Login_Url implements RSP_Module_Interface {
-
-    public function init() {
-        add_filter('query_vars',                 [$this, 'register_query_var']);
-        add_action('init',                      [$this, 'maybe_add_rules'], 9);
-        add_action('template_redirect',         [$this, 'maybe_render_custom_login'], 0);
-        add_action('init',                      [$this, 'block_wp_login_direct'], 1);
-        add_filter('login_url',                 [$this, 'filter_login_url'], 10, 3);
-        add_filter('site_url',                  [$this, 'filter_site_url'], 10, 3);
-        add_filter('network_site_url',          [$this, 'filter_site_url'], 10, 3);
+    private function slug(){ $s=trim((string)get_option('rsp_login_slug','manager')); return $s? ltrim($s,'/') : 'manager'; }
+    private function login_url(){ return home_url('/'.$this->slug().'/'); }
+    public function init(){
+        add_filter('query_vars', function($vars){ $vars[]='rsp_custom_login'; return $vars; });
+        add_action('init', function(){ add_rewrite_tag('%rsp_custom_login%','1'); add_rewrite_rule('^'.preg_quote($this->slug(),'/').'/?$','index.php?rsp_custom_login=1','top'); }, 9);
+        add_action('template_redirect', [$this,'render_custom'], 0);
+        add_action('init', [$this,'block_wp_login'], 1);
+        add_filter('login_url', [$this,'filter_login_url'], 10, 3);
+        add_filter('site_url',  [$this,'filter_site_url'], 10, 3);
+        add_filter('network_site_url', [$this,'filter_site_url'], 10, 3);
     }
-
-    /** ثبت query var مربوط به ری‌رایت */
-    public function register_query_var($vars) { $vars[] = 'rsp_custom_login'; return $vars; }
-
-    /** افزودن rewrite برای /{slug}/ → index.php?rsp_custom_login=1 (اختیاری) */
-    public function maybe_add_rules(){
-        $slug = $this->login_slug();
-        // تگ و رول را اضافه می‌کنیم؛ نیاز به flush در بار اول دارد، اما Fallback نیز داریم
-        add_rewrite_tag('%rsp_custom_login%', '1');
-        add_rewrite_rule('^'.preg_quote($slug, '/').'/?$', 'index.php?rsp_custom_login=1', 'top');
-    }
-
-    /** آدرس ورود سفارشی */
-    private function login_slug() {
-        $slug = trim((string) get_option('rsp_login_slug', 'manager'));
-        $slug = ltrim($slug, '/');
-        $slug = $slug === '' ? 'manager' : $slug;
-        return $slug;
-    }
-
-    /** URL کامل ورود سفارشی */
-    private function login_url_custom() { return home_url('/' . $this->login_slug() . '/'); }
-
-    /** آیا مسیر فعلی همان /{slug}/ است؟ (Fallback بدون rewrite) */
-    private function is_custom_login_path_request(){
-        $req = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
-        $path = $req ? (string) parse_url($req, PHP_URL_PATH) : '';
-        $want = '/' . $this->login_slug() . '/';
-        // هر دو حالت با و بدون اسلش پایانی را بپذیر
-        return ($path === $want) || ($path === rtrim($want, '/'));
-    }
-
-    /** رندر صفحه ورود وقتی /{slug}/ درخواست شده است (از طریق rewrite یا fallback) */
-    public function maybe_render_custom_login() {
+    public function render_custom(){
         $is_qv = (get_query_var('rsp_custom_login') === '1');
-        $is_path = $this->is_custom_login_path_request();
-        if (!$is_qv && !$is_path) return;
-
+        $path = isset($_SERVER['REQUEST_URI'])? (string) parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) : '';
+        $want = '/'.$this->slug().'/';
+        if (!$is_qv && !($path===$want || $path===rtrim($want,'/'))) return;
         if (!defined('DONOTCACHEPAGE')) define('DONOTCACHEPAGE', true);
-        if (!headers_sent()) {
-            nocache_headers();
-            header('X-RSP-Login: custom');
-            header('Referrer-Policy: no-referrer');
-            header('X-Frame-Options: SAMEORIGIN');
-        }
-
-        global $pagenow; $pagenow = 'wp-login.php';
-        $login_php = ABSPATH . 'wp-login.php';
+        if (!headers_sent()) { nocache_headers(); header('X-RSP-Login: custom'); }
+        global $pagenow; $pagenow='wp-login.php';
+        $login_php = ABSPATH.'wp-login.php';
         if (file_exists($login_php)) { require $login_php; exit; }
-        wp_die(__('فایل ورود وردپرس یافت نشد.', 'ready-secure-pro'), 500);
+        wp_die(__('فایل ورود وردپرس یافت نشد.','ready-secure-pro'));
     }
-
-    /** مسدودسازی دسترسی مستقیم به wp-login.php و هدایت به اسلاگ سفارشی */
-    public function block_wp_login_direct() {
-        $slug = $this->login_slug();
-        if ($slug === 'wp-login.php') return;
-        $uri  = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+    public function block_wp_login(){
+        $uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
         $path = $uri ? parse_url($uri, PHP_URL_PATH) : '';
-        if (!$path) return;
-        if (stripos($path, '/wp-login.php') === false) return;
-
+        if (!$path || stripos($path,'/wp-login.php')===false) return;
         $allowed = apply_filters('rsp_login_allowed_actions', ['logout','lostpassword','retrievepassword','resetpass','rp','postpass']);
-        $action  = isset($_REQUEST['action']) ? strtolower((string) $_REQUEST['action']) : '';
-
-        if (!in_array($action, (array)$allowed, true)) {
-            $to = $this->login_url_custom();
-            if (!headers_sent()) { wp_safe_redirect($to, 302); exit; }
-            echo '<meta http-equiv="refresh" content="0;url='.esc_url($to).'">'; exit;
-        }
+        $action = isset($_REQUEST['action']) ? strtolower((string) $_REQUEST['action']) : '';
+        if (!in_array($action, (array)$allowed, true)) { wp_safe_redirect($this->login_url(),302); exit; }
     }
-
-    /** یکسان‌سازی خروجی فیلتر login_url */
-    public function filter_login_url($login_url, $redirect, $force_reauth) {
-        $url = $this->login_url_custom();
-        $args = [];
-        if (!empty($redirect))  $args['redirect_to'] = $redirect;
-        if (!empty($force_reauth)) $args['reauth'] = '1';
-        if (!empty($args)) $url = add_query_arg($args, $url);
-        return $url;
-    }
-
-    /** جایگزینی wp-login.php در site_url / network_site_url */
-    public function filter_site_url($url, $path, $scheme) {
-        if (!is_string($url)) return $url;
-        if (strpos($url, 'wp-login.php') !== false) $url = $this->login_url_custom();
-        return $url;
-    }
+    public function filter_login_url($url,$redirect,$force){ $u=$this->login_url(); $args=[]; if($redirect) $args['redirect_to']=$redirect; if($force) $args['reauth']='1'; return $args? add_query_arg($args,$u):$u; }
+    public function filter_site_url($url,$path,$scheme){ if (is_string($url) && strpos($url,'wp-login.php')!==false) return $this->login_url(); return $url; }
 }

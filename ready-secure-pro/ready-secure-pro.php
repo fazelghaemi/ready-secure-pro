@@ -1,176 +1,156 @@
 <?php
 /**
  * Plugin Name: Ready Secure Pro
- * Description: سویت امنیتی ماژولار وردپرس با هویت بصری Ready Studio — حفاظت از محتوا، فایروال و حفاظت از فایل‌ها، امنیت کامل ورود (Login URL/2FA/Brute-Force)، مسدودسازی هوشمند 404، اسکن بدافزار، هاردنینگ، کاهش اسپم دیدگاه‌ها و هدرهای امنیتی.
- * Version: 2.2.0
- * Author: Ready Studio
+ * Description: مجموعه ابزارهای امنیت وردپرس (WAF سبک، گارد 404، ضداسپم دیدگاه، تغییر آدرس ورود، File Guard، هاردنینگ و اسکن‌ها)
+ * Version:     2.4.2
+ * Author:      Ready Studio
  * Text Domain: ready-secure-pro
- * Domain Path: /languages
  */
 
-if ( ! defined('ABSPATH') ) { exit; }
+if (!defined('ABSPATH')) { exit; }
 
-/**
- * ثوابت عمومی
- */
-define('RSP_VERSION', '2.2.0');
-define('RSP_PATH', plugin_dir_path(__FILE__));
-define('RSP_URL',  plugin_dir_url(__FILE__));
+/* -------------------------------------------------
+ * ثابت‌ها
+ * ------------------------------------------------- */
+if (!defined('RSP_VERSION')) define('RSP_VERSION', '2.4.2');
+if (!defined('RSP_PATH'))    define('RSP_PATH', plugin_dir_path(__FILE__));
+if (!defined('RSP_URL'))     define('RSP_URL',  plugin_dir_url(__FILE__));
 
-/**
- * بارگذاری ترجمه‌ها
- */
-add_action('init', function () {
-    load_plugin_textdomain('ready-secure-pro', false, dirname(plugin_basename(__FILE__)) . '/languages/');
-});
-
-/**
- * اتولودر ساده برای کلاس‌های داخلی (پیشوند RSP_)
- */
-spl_autoload_register(function ($class) {
-    if (strpos($class, 'RSP_') !== 0) return;
-    $file = 'includes/class-' . strtolower(str_replace('RSP_', '', $class)) . '.php';
-    $path = RSP_PATH . $file;
-    if (file_exists($path)) require_once $path;
-});
-
-/** فایل‌های کمکی و هستهٔ پنل ادمین */
-if (file_exists(RSP_PATH . 'includes/helpers.php'))                require_once RSP_PATH . 'includes/helpers.php';
-if (file_exists(RSP_PATH . 'includes/class-admin.php'))            require_once RSP_PATH . 'includes/class-admin.php';
-if (file_exists(RSP_PATH . 'includes/class-module-interface.php')) require_once RSP_PATH . 'includes/class-module-interface.php';
-
-/**
- * ماژول‌ها — هرکدام مشروط بارگذاری می‌شوند تا در صورت نبود فایل Fatal رخ ندهد
- * نام‌گذاری ماژول‌های جدید مطابق فیچرلیست: content-protect, smart-404, antispam, file-guard
- */
-$__rsp_modules_files = [
-    // ورود و دسترسی
-    'modules/login-url.php',        // تغییر آدرس ورود (مثلاً /manager)
-    'modules/bruteforce.php',       // قفل Brute-Force
-    'modules/two-factor.php',       // TOTP 2FA
-
-    // هدرها و هاردنینگ
-    'modules/headers.php',          // HSTS/CSP/COOP/COEP/CORP/…
-    'modules/hardening.php',        // غیرفعال‌سازی ویرایشگر، پنهان‌سازی نسخه، ضد enumeration
-    'modules/rest-guard.php',       // محدودسازی REST API برای ناشناس‌ها
-    'modules/xmlrpc.php',           // غیرفعال‌سازی XML-RPC
-
-    // فایروال/حفاظت فایل و لاگ‌ها
-    'modules/waf.php',              // WAF سبک + Rate Limit
-    'modules/file-guard.php',       // ← جدید: محافظت از فایل‌ها (uploads .htaccess / اسکن PHP)
-    'modules/activity-log.php',     // لاگ مرکزی رویدادها
-    'modules/fs-permissions.php',   // اسکن سطح دسترسی فایل/پوشه
-
-    // 404 هوشمند و آنتی‌اسپم
-    'modules/smart-404.php',        // ← جدید: مسدودسازی هوشمند IP بر اساس رگبار 404
-    'modules/antispam.php',         // ← جدید: هانی‌پات/تأخیر ارسال/Nonce برای دیدگاه‌ها
-
-    // یکپارچگی/بدافزار
-    'modules/integrity.php',        // چکسام هسته
-    'modules/malware.php',          // ← جدید: اسکنر بدافزار (رَپِر برای کلاس اسکن)
-
-    // اسکنرها (کلاس‌ها)
-    'modules/scanners/class-rsp-malware-scanner.php',
-];
-foreach ($__rsp_modules_files as $__f) {
-    $__p = RSP_PATH . $__f;
-    if (file_exists($__p)) require_once $__p;
+/* -------------------------------------------------
+ * سازگاری: Interface عمومی ماژول‌ها (اگر از قبل نیست)
+ * ------------------------------------------------- */
+if (!interface_exists('RSP_Module_Interface')) {
+    interface RSP_Module_Interface { public function init(); }
 }
 
-/**
- * بوت: پنل ادمین + راه‌اندازی تمام ماژول‌های موجود
- */
-add_action('plugins_loaded', function () {
-    if (class_exists('RSP_Admin')) {
-        (new RSP_Admin())->init();
+/* -------------------------------------------------
+ * Helperهای ضروری (اگر در جای دیگر تعریف نشده‌اند)
+ * ------------------------------------------------- */
+if (!function_exists('rsp_client_ip')) {
+    function rsp_client_ip() {
+        $keys = ['HTTP_CF_CONNECTING_IP','HTTP_X_FORWARDED_FOR','HTTP_X_REAL_IP','REMOTE_ADDR'];
+        foreach ($keys as $k) {
+            if (!empty($_SERVER[$k])) {
+                $v = trim((string) $_SERVER[$k]);
+                if ($k === 'HTTP_X_FORWARDED_FOR' && strpos($v, ',') !== false) {
+                    $v = trim(explode(',', $v)[0]);
+                }
+                if (filter_var($v, FILTER_VALIDATE_IP)) return $v;
+            }
+        }
+        return '';
     }
+}
+if (!function_exists('rsp_ip_in_cidr')) {
+    function rsp_ip_in_cidr($ip, $cidr) {
+        if (!$ip || strpos($cidr, '/') === false) return false;
+        list($subnet, $mask) = explode('/', $cidr, 2);
+        $mask = (int) $mask;
+        $ip_long     = ip2long($ip);
+        $subnet_long = ip2long($subnet);
+        if ($ip_long === false || $subnet_long === false) return false;
+        $mask = ~((1 << (32 - $mask)) - 1);
+        return (($ip_long & $mask) === ($subnet_long & $mask));
+    }
+}
 
-    $classes = [
-        // ورود
-        'RSP_Module_Login_Url',
-        'RSP_Module_BruteForce',
-        'RSP_Module_Two_Factor',
+/* -------------------------------------------------
+ * بارگذاری فایل با بررسی وجود
+ * ------------------------------------------------- */
+function rsp_require($relpath) {
+    $abs = RSP_PATH . ltrim($relpath, '/');
+    if (file_exists($abs)) { require_once $abs; return true; }
+    return false;
+}
 
-        // هاردنینگ/هدرها
-        'RSP_Module_Headers',
-        'RSP_Module_Hardening',
-        'RSP_Module_Rest_Guard',
-        'RSP_Module_Xmlrpc',
+/* -------------------------------------------------
+ * فعال‌سازی/غیرفعال‌سازی
+ * ------------------------------------------------- */
+register_activation_hook(__FILE__, function () {
+    // جدول لاگ ساده (درصورت نبود)
+    global $wpdb;
+    $t = $wpdb->prefix . 'rsp_logs';
+    $charset = $wpdb->get_charset_collate();
+    $sql = "CREATE TABLE IF NOT EXISTS $t (
+        id BIGINT unsigned NOT NULL AUTO_INCREMENT,
+        ts DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        type VARCHAR(64) NOT NULL,
+        ip   VARCHAR(64) NULL,
+        detail LONGTEXT NULL,
+        PRIMARY KEY (id),
+        KEY type_idx (type)
+    ) $charset;";
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta($sql);
 
-        // فایروال/فایل/لاگ
-        'RSP_Module_WAF',
-        'RSP_Module_File_Guard',    // جدید
-        'RSP_Module_Activity_Log',
-        'RSP_Module_FS_Permissions',
+    // فلش قوانین بازنویسی (برای اسلاگ ورود سفارشی)
+    flush_rewrite_rules(false);
+});
+register_deactivation_hook(__FILE__, function () {
+    flush_rewrite_rules(false);
+});
 
-        // 404/اسپم
-        'RSP_Module_Smart_404',     // جدید
-        'RSP_Module_AntiSpam',      // جدید
+/* -------------------------------------------------
+ * بوت‌استرپ افزونه
+ * ------------------------------------------------- */
+add_action('plugins_loaded', function () {
 
-        // یکپارچگی/بدافزار
-        'RSP_Module_Integrity',
-        'RSP_Module_Malware',       // جدید
+    // استایل/اسکریپت مدیریت و صفحه تنظیمات
+    rsp_require('includes/class-admin.php');
+
+    // ماژول‌ها: هر کدام اگر وجود داشتند، لود و init شوند
+    $modules = [
+        'modules/file-guard.php'          => 'RSP_Module_File_Guard',
+        'modules/waf.php'                 => 'RSP_Module_WAF',
+        'modules/guard-404-antispam.php'  => 'RSP_Module_Guard_404_AntiSpam',
+        'modules/rest-guard.php'          => 'RSP_Module_REST_Guard',
+        'modules/hardening.php'           => 'RSP_Module_Hardening',
+        'modules/integrity.php'           => 'RSP_Module_Integrity',
+        'modules/malware-scanner.php'     => 'RSP_Module_Malware_Scanner',
+        'modules/fs-permissions.php'      => 'RSP_Module_FS_Permissions',
+        'modules/brute-force.php'       => 'RSP_Module_Brute_Force',
+        // هر ماژول جدید را به همین آرایه اضافه کن
     ];
 
-    foreach ($classes as $cls) {
-        if (class_exists($cls)) {
-            try { (new $cls())->init(); } catch (\Throwable $e) {
-                if (function_exists('error_log')) error_log('[Ready Secure Pro] Module boot error: ' . $cls . ' → ' . $e->getMessage());
+    // لود کلاس ادمین
+    if (class_exists('RSP_Admin')) {
+        $GLOBALS['rsp_admin'] = new RSP_Admin();
+        if (method_exists($GLOBALS['rsp_admin'], 'init')) {
+            $GLOBALS['rsp_admin']->init();
+        }
+    }
+
+    // لود و راه‌اندازی ماژول‌ها
+    foreach ($modules as $file => $class) {
+        rsp_require($file);
+        if (class_exists($class)) {
+            try {
+                $obj = new $class();
+                if ($obj instanceof RSP_Module_Interface) {
+                    $obj->init();
+                } elseif (method_exists($obj,'init')) {
+                    $obj->init();
+                }
+            } catch (Exception $e) {
+                // در صورت خطا، فقط لاگ بزن و ادامه بده
+                do_action('rsp_activity_log', 'module_init_error', [
+                    'module' => $class, 'error' => $e->getMessage()
+                ]);
             }
         }
     }
 });
 
-/**
- * اکتیویشن: پیش‌فرض‌های امن و ری‌رایت برای اسلاگ ورود
- */
-register_activation_hook(__FILE__, function () {
-    // ورود
-    add_option('rsp_login_slug', 'manager');
-    add_option('rsp_bruteforce_max', 5);
-    add_option('rsp_bruteforce_lock_minutes', 15);
-    add_option('rsp_bruteforce_whitelist', '');
-    add_option('rsp_2fa_enforce_role', ''); // مثال: administrator
-
-    // هدرها
-    add_option('rsp_headers_hsts', 1);
-    add_option('rsp_headers_mode', 'report-only');
-    add_option('rsp_headers_csp', "default-src 'self'; img-src 'self' data:;");
-
-    // WAF / Rate limit
-    add_option('rsp_waf_enabled', 1);
-    add_option('rsp_waf_rate_limit', 120); // تعداد درخواست در پنجره
-    add_option('rsp_waf_window', 60);      // طول پنجره ثانیه
-
-    // محافظت از فایل‌ها (uploads)
-    add_option('rsp_file_guard_disable_php_uploads', 1);
-    add_option('rsp_file_guard_auto_index', 1); // index.html در دایرکتوری‌های حساس
-
-    // 404 هوشمند
-    add_option('rsp_404_enable', 1);
-    add_option('rsp_404_threshold', 20);        // حداکثر 404 در پنجره
-    add_option('rsp_404_window', 300);          // پنجره 5 دقیقه‌ای
-    add_option('rsp_404_block_minutes', 60);    // قفل 60 دقیقه
-
-    // آنتی‌اسپم دیدگاه‌ها
-    add_option('rsp_antispam_enable', 1);
-    add_option('rsp_antispam_min_seconds', 5);  // حداقل زمان بین load و submit
-    add_option('rsp_antispam_honeypot', 1);
-
-    // حفاظت از محتوا (فرانت)
-    add_option('rsp_content_protect_enable', 1); // منع راست‌کلیک/کپی/دِرَگ تصویر
-
-    // ری‌رایت اسلاگ ورود
-    $slug = get_option('rsp_login_slug', 'manager');
-    add_rewrite_tag('%rsp_custom_login%', '1');
-    add_rewrite_rule('^' . preg_quote($slug, '/') . '/?$', 'index.php?rsp_custom_login=1', 'top');
-
-    flush_rewrite_rules();
-});
-
-/**
- * دی‌اکتیویشن: فقط فلش ری‌رایت
- */
-register_deactivation_hook(__FILE__, function () {
-    flush_rewrite_rules();
-});
+/* -------------------------------------------------
+ * هاردنینگ هدرها (HSTS فقط روی HTTPS)
+ * ------------------------------------------------- */
+add_action('send_headers', function () {
+    // مثال: HSTS فقط در HTTPS
+    if (get_option('rsp_headers_hsts', 1) && is_ssl()) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains; preload');
+    }
+    // سایر هدرهای سبک
+    header('Referrer-Policy: ' . esc_attr(get_option('rsp_headers_referrer', 'no-referrer')));
+    header('X-Frame-Options: SAMEORIGIN');
+    header('X-Content-Type-Options: nosniff');
+}, 11);

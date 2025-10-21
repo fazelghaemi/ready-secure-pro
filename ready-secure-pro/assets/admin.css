@@ -1,287 +1,233 @@
 /*
-  Ready Secure Pro — Admin UI (Modern Extended)
-  برند: Ready Studio — Primary #00b0a4, Secondary #098b82, Accent #ff6b00
-  فونت: ReadyFont.woff
-  دامنهٔ استایل‌ها به .rsp-wrap محدود شده تا با سایر صفحات ادمین تداخل نداشته باشد.
-*/
+ * Ready Secure Pro - Admin UI
+ * v2.4.0
+ * - فونت سراسری ReadyFont
+ * - کنتراست متن‌ها روی پس‌زمینه‌ی سرمه‌ای (تمام تیتر/برچسب/ورودی)
+ * - دکمه‌ها، تب‌ها و کارت‌ها با گردی 8px و فوکِس رینگ واضح
+ * - نوار هِدِر و تب‌ها چسبان (sticky)
+ * - RTL-ready و واکنش‌گرا
+ */
 
-/* ====== Font (Brand) ====== */
 @font-face{
   font-family:'ReadyFont';
-  src:url('./fonts/ReadyFont.woff') format('woff');
+  src:url('ReadyFont.woff') format('woff');
   font-display:swap;
 }
 
-/* ====== Color System ====== */
+/* رنگ‌های پایه (الهام از هویت Ready Studio) */
 :root{
-  --rsp-primary:#00b0a4; /* teal */
-  --rsp-primary-600:#0aa399;
-  --rsp-secondary:#098b82; /* deep teal */
-  --rsp-accent:#ff6b00; /* orange */
-  --rsp-success:#14b8a6;
-  --rsp-warn:#f59e0b;
-  --rsp-danger:#ef4444;
-
-  --rsp-bg:#0b1020;
-  --rsp-surface:#0f172a;
-  --rsp-surface-2:#111827;
-  --rsp-elev:#0a1327;
-  --rsp-border:#1f2a44;
-  --rsp-border-2:#23304f;
-  --rsp-text:#e5e7eb;
-  --rsp-text-soft:#cbd5e1;
-  --rsp-muted:#94a3b8;
-  --rsp-shadow:0 12px 30px rgba(0,0,0,.28);
-  --rsp-radius:12px;
-  --rsp-radius-sm:8px; /* الزامی برای دکمه‌ها */
-  --rsp-focus:0 0 0 3px rgba(0,176,164,.25);
+  --rsp-bg:#0b1430;              /* پس‌زمینه اصلی */
+  --rsp-panel:#111c3f;           /* کارت/پنل */
+  --rsp-elev:#0e1938;            /* سایه/عمق */
+  --rsp-accent:#00b0a4;          /* فیروزه‌ای Ready */
+  --rsp-cta:#ff6b00;             /* CTA */
+  --rsp-text:#eef2ff;            /* متن اصلی روشن */
+  --rsp-muted:#b9c4ff;           /* متن ثانویه */
+  --rsp-border:#263464;          /* خطوط ظریف */
+  --rsp-danger:#e0465d;          /* اخطار */
+  --rsp-success:#1ec88b;         /* موفق */
+  --rsp-focus:rgba(0,176,164,.35); /* فوکوس */
 }
 
-/* Light mode (optional via class) */
-.rsp-wrap.rsp-theme-light{
-  --rsp-bg:#f7fafc; --rsp-surface:#ffffff; --rsp-surface-2:#f1f5f9; --rsp-elev:#ffffff;
-  --rsp-border:#e5e7eb; --rsp-border-2:#d1d5db; --rsp-text:#0f172a; --rsp-text-soft:#334155; --rsp-muted:#64748b;
-  --rsp-shadow:0 10px 24px rgba(2,6,23,.08);
+/* محوطه افزونه */
+.rsp-wrap{
+  direction:rtl;
+  font-family:'ReadyFont', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  color:var(--rsp-text);
+  background:var(--rsp-bg);
+  padding:20px;
+  line-height:1.75;
 }
 
-/* Auto respect system theme (opt-in) */
-@media (prefers-color-scheme: light){
-  .rsp-wrap.rsp-theme-auto{ --rsp-bg:#f7fafc; --rsp-surface:#ffffff; --rsp-surface-2:#f1f5f9; --rsp-elev:#ffffff; --rsp-border:#e5e7eb; --rsp-border-2:#d1d5db; --rsp-text:#0f172a; --rsp-text-soft:#334155; --rsp-muted:#64748b; --rsp-shadow:0 10px 24px rgba(2,6,23,.08); }
+/* ریست تایپوگرافی داخل افزونه برای جلوگیری از متن‌های مشکی */
+.rsp-wrap h1,
+.rsp-wrap h2,
+.rsp-wrap h3,
+.rsp-wrap h4,
+.rsp-wrap h5,
+.rsp-wrap h6{ color:var(--rsp-text); margin:0 0 12px; font-weight:700; }
+
+.rsp-wrap p,
+.rsp-wrap label,
+.rsp-wrap small,
+.rsp-wrap .description,
+.rsp-wrap .notice p{ color:var(--rsp-muted); }
+
+/* هدر بالای صفحه */
+.rsp-header{
+  position:sticky; top:0; z-index:50;
+  background:linear-gradient(180deg, rgba(17,28,63,.95), rgba(17,28,63,.6));
+  backdrop-filter:blur(6px);
+  display:flex; align-items:center; justify-content:space-between;
+  gap:16px; padding:12px 16px; margin:-8px -8px 12px;
+  border-bottom:1px solid var(--rsp-border);
+  border-radius:12px;
 }
+.rsp-brand{ display:flex; align-items:center; gap:10px; }
+.rsp-logo{ font-size:28px }
+.rsp-ver{ color:var(--rsp-muted); font-size:12px }
 
-/* ====== Scope / Reset ====== */
-.rsp-wrap{font-family:'ReadyFont',Inter,system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:var(--rsp-text);background:transparent}
-.rsp-wrap *{box-sizing:border-box}
-.rsp-wrap .hidden{display:none}
-.rsp-wrap .visually-hidden{position:absolute!important;clip:rect(1px,1px,1px,1px);padding:0;border:0;height:1px;width:1px;overflow:hidden}
+/* دکمه‌ها (گردی 8px) */
+.rsp-btn,
+.rsp-tab{
+  border:none; border-radius:8px;
+  padding:10px 14px; cursor:pointer; transition:.2s ease;
+  font-weight:600;
+}
+.rsp-btn{ background:var(--rsp-accent); color:#fff; box-shadow:0 6px 16px rgba(0,0,0,.18); }
+.rsp-btn:hover{ filter:brightness(1.05) }
+.rsp-btn:active{ transform:translateY(1px) }
+.rsp-btn.danger{ background:var(--rsp-danger) }
+.rsp-btn.success{ background:var(--rsp-success) }
 
-/* ====== Layout / Containers ====== */
-.rsp-container{display:block;margin:16px 0}
-.rsp-topbar{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(90deg,rgba(0,176,164,.14),rgba(9,139,130,.06));padding:14px 16px;border:1px solid var(--rsp-border);border-radius:var(--rsp-radius);margin:16px 0 12px;box-shadow:var(--rsp-shadow)}
-.rsp-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
-.rsp-logo-img{height:22px;vertical-align:middle;filter:drop-shadow(0 2px 6px rgba(0,0,0,.25))}
-.rsp-name{letter-spacing:.2px}
-.rsp-badge{background:var(--rsp-primary);color:#042524;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700}
-.rsp-ver{opacity:.85}
+/* تب‌ها */
+.rsp-tabs{ position:sticky; top:64px; z-index:40; display:flex; gap:8px; margin:10px 0 16px }
+.rsp-tab{ background:#0d1a3d; color:var(--rsp-muted); box-shadow:inset 0 0 0 1px var(--rsp-border) }
+.rsp-tab.is-active{ background:var(--rsp-panel); color:#fff; box-shadow:inset 0 0 0 2px rgba(255,255,255,.06) }
 
-/* Density switchers (optional) */
-.rsp-dense .rsp-card{padding:12px}
-.rsp-dense .rsp-grid{gap:10px}
+/* پنل‌ها و کارت‌ها */
+.rsp-panels{ margin-top:6px }
+.rsp-panel{ display:none; animation:rspFade .18s ease }
+.rsp-panel.is-active{ display:block }
+@keyframes rspFade{ from{opacity:.6; transform:translateY(4px)} to{opacity:1; transform:none} }
 
-/* ====== Tabs ====== */
-.rsp-tabs{position:relative;display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
-.rsp-tab{appearance:none;background:var(--rsp-surface);color:var(--rsp-text);border:1px solid var(--rsp-border);padding:8px 12px;border-radius:var(--rsp-radius-sm);cursor:pointer;transition:transform .06s ease,background .2s ease,box-shadow .2s ease}
-.rsp-tab:hover{transform:translateY(-1px);background:#121b30}
-.rsp-tab.active{background:var(--rsp-primary);color:#052e2b;border-color:transparent;box-shadow:0 6px 18px rgba(0,176,164,.25)}
-.rsp-tabs.underline .rsp-tab{border:none;background:transparent;color:var(--rsp-muted)}
-.rsp-tabs.underline .rsp-tab.active{color:var(--rsp-text);position:relative}
-.rsp-tabs.underline .rsp-tab.active::after{content:"";position:absolute;left:10px;right:10px;bottom:-6px;height:3px;border-radius:99px;background:linear-gradient(90deg,var(--rsp-primary),var(--rsp-secondary))}
+.rsp-card{
+  background:var(--rsp-panel);
+  border:1px solid var(--rsp-border);
+  border-radius:16px;
+  padding:16px;
+  margin:12px 0;
+  box-shadow:0 10px 24px rgba(0,0,0,.22);
+}
+.rsp-card h3{ color:#fff; font-size:16px; margin-bottom:8px }
 
-/* ====== Panels ====== */
-.rsp-panels{margin-top:8px}
-.rsp-panel{display:none}
-.rsp-panel.show{display:block;animation:rsp-fade-in .18s ease}
+/* فهرست وضعیت */
+.rsp-list{ margin:0; padding:0 1rem; }
+.rsp-list li{ color:var(--rsp-muted); padding:6px 0 }
 
-/* ====== Grid ====== */
-.rsp-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px}
-@media (max-width:1200px){.rsp-grid{grid-template-columns:repeat(8,minmax(0,1fr))}}
-@media (max-width:782px){.rsp-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
-
-/* ====== Card ====== */
-.rsp-card{grid-column:span 6;background:var(--rsp-surface);border:1px solid var(--rsp-border);border-radius:var(--rsp-radius);padding:16px;box-shadow:var(--rsp-shadow)}
-.rsp-card.stat{grid-column:span 6}
-.rsp-card.narrow{grid-column:span 4}
-.rsp-card.full{grid-column:1/-1}
-@media (max-width:1200px){.rsp-card,.rsp-card.stat{grid-column:span 8}}
-@media (max-width:782px){.rsp-card,.rsp-card.stat{grid-column:span 4}}
-.rsp-card h3{margin-top:0;margin-bottom:12px;font-size:16px;line-height:1.2}
-.rsp-card .rsp-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.rsp-card .rsp-card-footer{margin-top:12px;display:flex;gap:8px;justify-content:flex-end}
-
-/* ====== Key-Value List ====== */
-.rsp-kv{list-style:none;padding:0;margin:0}
-.rsp-kv li{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,.06)}
-.rsp-kv li:last-child{border-bottom:0}
-
-/* ====== Forms (Inputs) ====== */
+/* ورودی‌ها و سلکت‌ها با کنتراست مناسب */
 .rsp-wrap input[type=text],
 .rsp-wrap input[type=number],
 .rsp-wrap input[type=email],
 .rsp-wrap input[type=url],
 .rsp-wrap input[type=password],
-.rsp-wrap textarea,
-.rsp-wrap select{width:100%;background:var(--rsp-surface-2);border:1px solid var(--rsp-border);color:var(--rsp-text);padding:9px 12px;border-radius:10px;outline:none;transition:border .2s ease, box-shadow .2s ease}
-.rsp-wrap textarea{min-height:96px}
+.rsp-wrap select,
+.rsp-wrap textarea{
+  width:100%;
+  max-width:520px;
+  background:#0f1b43;
+  color:#eaf1ff;
+  border:1px solid var(--rsp-border);
+  border-radius:8px;
+  padding:10px 12px;
+  outline:none;
+  transition:border-color .15s, box-shadow .15s;
+}
+.rsp-wrap textarea{ min-height:120px; resize:vertical }
+
+/* placeholder روشن‌تر */
+.rsp-wrap ::placeholder{ color:#9fb3ff }
+
+/* فوکوس رینگ واضح */
 .rsp-wrap input:focus,
+.rsp-wrap select:focus,
 .rsp-wrap textarea:focus,
-.rsp-wrap select:focus{border-color:var(--rsp-primary);box-shadow:var(--rsp-focus)}
-.rsp-field{display:flex;flex-direction:column;gap:6px;margin:8px 0}
-.rsp-label{font-size:12px;color:var(--rsp-muted)}
-.rsp-help{font-size:12px;color:var(--rsp-muted)}
-
-/* Checkboxes / Radios */
-.rsp-check{display:flex;align-items:center;gap:8px}
-.rsp-wrap input[type=checkbox], .rsp-wrap input[type=radio]{accent-color:var(--rsp-primary)}
-
-/* Toggle Switch */
-.rsp-switch{position:relative;display:inline-flex;align-items:center;gap:10px}
-.rsp-switch input{appearance:none;width:42px;height:24px;background:var(--rsp-border-2);border-radius:999px;position:relative;outline:none;cursor:pointer;transition:background .2s ease}
-.rsp-switch input::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.25);transition:transform .2s ease}
-.rsp-switch input:checked{background:linear-gradient(90deg,var(--rsp-secondary),var(--rsp-primary))}
-.rsp-switch input:checked::after{transform:translateX(18px)}
-
-/* Buttons — mandatory 8px radius */
-.rsp-wrap .button,
-.rsp-wrap .button-primary,
-.rsp-wrap .button-secondary,
-.rsp-tab,
-#rsp-run-integrity,#rsp-run-malware,#rsp-export-log,#rsp-export-settings,#rsp-import-settings,#rsp-scan-fs,#rsp-scan-malware{border-radius:var(--rsp-radius-sm)!important}
-
-/* Button Styles */
-.rsp-btn{display:inline-flex;align-items:center;gap:8px;border-radius:var(--rsp-radius-sm);padding:8px 12px;border:1px solid var(--rsp-border);background:#121b30;color:var(--rsp-text);cursor:pointer;transition:transform .06s ease, background .2s ease, box-shadow .2s ease}
-.rsp-btn:hover{background:#16233d;transform:translateY(-1px)}
-.rsp-btn:active{transform:translateY(0)}
-.rsp-btn[disabled]{opacity:.6;cursor:not-allowed}
-.rsp-btn.primary{background:var(--rsp-primary);border-color:transparent;color:#052e2b;box-shadow:0 6px 18px rgba(0,176,164,.25)}
-.rsp-btn.primary:hover{filter:brightness(1.05)}
-.rsp-btn.secondary{background:var(--rsp-surface-2)}
-.rsp-btn.ghost{background:transparent}
-.rsp-btn.success{background:var(--rsp-success);color:#032b28;border:none}
-.rsp-btn.warn{background:var(--rsp-warn);color:#2b1903;border:none}
-.rsp-btn.danger{background:var(--rsp-danger);color:#2b0303;border:none}
-
-/* Button Loading State */
-.rsp-btn.loading{position:relative;color:transparent!important}
-.rsp-btn.loading::after{content:"";position:absolute;inset:0;margin:auto;width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.5);border-top-color:#fff;animation:rsp-spin .8s linear infinite}
-
-/* Alerts */
-.rsp-alert{padding:10px 12px;border-radius:10px;margin:10px 0;font-size:13px;border:1px solid var(--rsp-border)}
-.rsp-alert.success{background:rgba(20,184,166,.12);border-color:rgba(20,184,166,.35);color:#bff4ec}
-.rsp-alert.warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35);color:#ffe6b8}
-.rsp-alert.danger{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35);color:#ffd0d0}
-
-/* Badges / Chips */
-.rsp-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;font-size:12px;border:1px solid var(--rsp-border)}
-.rsp-badge.ok{background:rgba(20,184,166,.1);color:#bff4ec}
-.rsp-badge.off{background:rgba(239,68,68,.08);color:#ffd0d0}
-.rsp-chip{display:inline-flex;align-items:center;gap:6px;background:var(--rsp-surface-2);border:1px solid var(--rsp-border);padding:4px 8px;border-radius:999px;font-size:12px}
-
-/* Tables */
-.rsp-card table{width:100%;border-collapse:separate;border-spacing:0}
-.rsp-card th,.rsp-card td{border-bottom:1px solid rgba(255,255,255,.06);padding:10px 8px;text-align:start}
-.rsp-card tr:hover{background:#0e1830}
-.rsp-table-sticky thead th{position:sticky;top:0;background:var(--rsp-surface);z-index:2}
-.rsp-table-zebra tr:nth-child(even){background:rgba(255,255,255,.02)}
-
-/* Code / Pre */
-.rsp-pre, .rsp-code{background:#0b1328;border:1px solid var(--rsp-border);border-radius:10px;padding:10px;color:#cbd5e1;white-space:pre-wrap;max-height:420px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
-.rsp-pre.small{max-height:240px}
-
-/* Textarea (Export/Import) */
-.rsp-textarea{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#0b1328;border:1px solid var(--rsp-border);color:#cbd5e1;border-radius:10px;padding:10px}
-
-/* Progress / Meters */
-.rsp-progress{height:10px;background:var(--rsp-border-2);border-radius:999px;overflow:hidden}
-.rsp-progress>span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--rsp-secondary),var(--rsp-primary));transition:width .35s ease}
-
-/* Skeleton Loaders */
-.rsp-skeleton{position:relative;overflow:hidden;background:linear-gradient(90deg,rgba(255,255,255,.06),rgba(255,255,255,.12),rgba(255,255,255,.06));background-size:200% 100%;animation:rsp-shimmer 1.4s ease infinite}
-
-/* Tooltip */
-.rsp-tooltip{position:relative}
-.rsp-tooltip:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);inset-inline-start:0;background:var(--rsp-elev);color:var(--rsp-text);border:1px solid var(--rsp-border);padding:6px 8px;border-radius:8px;white-space:nowrap;box-shadow:var(--rsp-shadow);font-size:12px}
-
-/* Toasts */
-.rsp-toast-stack{position:fixed;inset-inline-end:16px;bottom:16px;display:flex;flex-direction:column;gap:10px;z-index:100000}
-.rsp-toast{background:var(--rsp-elev);color:var(--rsp-text);border:1px solid var(--rsp-border);padding:10px 12px;border-radius:10px;box-shadow:var(--rsp-shadow);display:flex;align-items:center;gap:8px;animation:rsp-pop .15s ease}
-
-/* Modal */
-.rsp-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:100000}
-.rsp-modal.open{display:flex}
-.rsp-modal .rsp-backdrop{position:absolute;inset:0;background:rgba(2,6,23,.55);backdrop-filter:blur(2px);animation:rsp-fade-in .12s ease}
-.rsp-modal .rsp-dialog{position:relative;background:var(--rsp-surface);border:1px solid var(--rsp-border);border-radius:var(--rsp-radius);padding:16px;min-width:300px;max-width:720px;width:96%;box-shadow:var(--rsp-shadow);animation:rsp-pop .16s ease}
-
-/* Accordions */
-.rsp-acc{border:1px solid var(--rsp-border);border-radius:var(--rsp-radius);overflow:hidden}
-.rsp-acc .rsp-acc-item+.rsp-acc-item{border-top:1px solid var(--rsp-border)}
-.rsp-acc-hd{background:var(--rsp-surface-2);padding:10px 12px;cursor:pointer;display:flex;align-items:center;justify-content:space-between}
-.rsp-acc-bd{display:none;padding:12px}
-.rsp-acc-item.open .rsp-acc-bd{display:block;animation:rsp-fade-in .15s ease}
-
-/* Utilities */
-.rsp-row{display:flex;gap:8px;align-items:center}
-.rsp-col{display:flex;flex-direction:column;gap:6px}
-.rsp-space{height:10px}
-.rsp-divider{height:1px;background:var(--rsp-border);margin:10px 0}
-.rsp-note{color:var(--rsp-muted);margin:8px 0}
-
-/* Scrollbars (Chromium) */
-.rsp-wrap ::-webkit-scrollbar{height:10px;width:10px}
-.rsp-wrap ::-webkit-scrollbar-thumb{background:#243047;border-radius:10px}
-.rsp-wrap ::-webkit-scrollbar-track{background:#0a0f1f}
-
-/* Login screen (custom path) tweaks */
-.login form .button-primary{border-radius:var(--rsp-radius-sm)}
-
-/* ====== Animations ====== */
-@keyframes rsp-fade-in{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
-@keyframes rsp-pop{from{opacity:0;transform:scale(.98)}to{opacity:1;transform:scale(1)}}
-@keyframes rsp-spin{to{transform:rotate(360deg)}}
-@keyframes rsp-shimmer{0%{background-position:200% 0}100%{background-position:0 0}}
-
-/* ====== RTL Enhancements ====== */
-body.rtl .rsp-topbar{direction:rtl}
-body.rtl .rsp-kv li{justify-content:flex-start}
-body.rtl .rsp-tabs{direction:rtl}
-body.rtl .rsp-tooltip:hover::after{inset-inline-start:auto;inset-inline-end:0}
-
-/* ====== Advanced Tables: responsive container ====== */
-.rsp-table-responsive{width:100%;overflow:auto;border:1px solid var(--rsp-border);border-radius:var(--rsp-radius)}
-.rsp-table-responsive table{margin:0}
-
-/* ====== Helper States ====== */
-.is-ok{color:var(--rsp-success)}
-.is-warn{color:var(--rsp-warn)}
-.is-danger{color:var(--rsp-danger)}
-
-/* ====== Focus Outline for Keyboard Users ====== */
-.rsp-wrap .button:focus,
-.rsp-wrap .button-primary:focus,
-.rsp-wrap .button-secondary:focus,
 .rsp-btn:focus,
-.rsp-tab:focus,
-.rsp-wrap input:focus,
-.rsp-wrap textarea:focus,
-.rsp-wrap select:focus{box-shadow:var(--rsp-focus)}
+.rsp-tab:focus{
+  border-color:var(--rsp-accent);
+  box-shadow:0 0 0 3px var(--rsp-focus);
+}
 
-/* ====== Form Groups in Cards ====== */
-.rsp-card form .rsp-field+.rsp-field{margin-top:8px}
-.rsp-card form .button{margin-top:10px}
+/* کد و پیش‌نمایش خروجی */
+.rsp-wrap pre{
+  background:#0b1431;
+  color:#e6ecff;
+  border:1px solid var(--rsp-border);
+  border-radius:12px;
+  padding:12px; overflow:auto;
+}
 
-/* ====== Status Pills ====== */
-.rsp-status{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;border:1px solid var(--rsp-border)}
-.rsp-status.ok{background:rgba(20,184,166,.12);color:#bff4ec}
-.rsp-status.off{background:rgba(239,68,68,.1);color:#ffd0d0}
+/* گرید جمع‌وجور داخل کارت‌ها */
+.rsp-card .row{ display:grid; grid-template-columns:220px 1fr; gap:12px; align-items:center }
+@media (max-width:960px){
+  .rsp-card .row{ grid-template-columns:1fr }
+  .rsp-tabs{ top:56px; flex-wrap:wrap }
+}
 
-/* ====== Headings Scale ====== */
-.rsp-h1{font-size:22px;font-weight:800;margin:0 0 8px}
-.rsp-h2{font-size:18px;font-weight:700;margin:0 0 8px}
-.rsp-h3{font-size:16px;font-weight:700;margin:0 0 8px}
-.rsp-text-sm{font-size:12px}
-.rsp-text-xs{font-size:11px}
+/* جعبه‌های اعلان داخل افزونه */
+.rsp-wrap .notice{ border-radius:12px; border-color:var(--rsp-border); background:var(--rsp-elev) }
+.rsp-wrap .notice.notice-success{ border-color:rgba(30,200,139,.5); background:rgba(30,200,139,.08) }
+.rsp-wrap .notice.notice-error{ border-color:rgba(224,70,93,.45); background:rgba(224,70,93,.08) }
+.rsp-wrap .notice p{ color:var(--rsp-text) }
 
-/* ====== Shadows & Effects Helpers ====== */
-.rsp-shadow{box-shadow:var(--rsp-shadow)}
-.rsp-blur{backdrop-filter:blur(4px)}
+/* لینک‌ها */
+.rsp-wrap a{ color:var(--rsp-accent); text-decoration:none }
+.rsp-wrap a:hover{ text-decoration:underline }
 
-/* ====== Cards Variants ====== */
-.rsp-card.success{border-color:rgba(20,184,166,.35);background:rgba(20,184,166,.07)}
-.rsp-card.warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.07)}
-.rsp-card.danger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.07)}
+/* چیپ و نشان‌ها (درصورت استفاده) */
+.rsp-badge{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; font-weight:700; font-size:12px; background:#0f1b43; color:#fff; border:1px solid var(--rsp-border) }
+.rsp-badge.success{ background:rgba(30,200,139,.12); color:#c9ffef; border-color:rgba(30,200,139,.35) }
+.rsp-badge.warn{ background:rgba(255,107,0,.12); color:#ffd9c0; border-color:rgba(255,107,0,.35) }
 
-/* ====== Links ====== */
-.rsp-wrap a{color:var(--rsp-primary);text-decoration:none}
-.rsp-wrap a:hover{filter:brightness(1.1)}
+/* جدول‌های Settings API وردپرس که داخل کارت رندر می‌شوند */
+.rsp-card table.form-table th{ color:var(--rsp-text) }
+.rsp-card table.form-table td .description{ color:var(--rsp-muted) }
 
-/* ====== Selection ====== */
-.rsp-wrap ::selection{background:rgba(0,176,164,.25)}
+/* کادرهای کپی/کد */
+.rsp-code{
+  display:flex; align-items:center; gap:8px;
+  background:#0f1b43; border:1px dashed var(--rsp-border);
+  color:#eaf1ff; padding:10px 12px; border-radius:10px;
+}
+
+/* اسکرول‌بار ظریف در مرورگرهای مدرن */
+.rsp-wrap *::-webkit-scrollbar{ height:10px; width:10px }
+.rsp-wrap *::-webkit-scrollbar-thumb{ background:#2a3569; border-radius:999px }
+.rsp-wrap *::-webkit-scrollbar-track{ background:#0e1730 }
+
+/* دکمه‌های کوچک داخل کارت‌ها (مثلاً Import/Export) */
+.rsp-actions{ display:flex; gap:8px }
+.rsp-actions .rsp-btn{ padding:9px 12px }
+
+/* باکس‌های خالی (Placeholder) در تب اسکن‌ها */
+.rsp-skeleton{
+  height:12px; border-radius:999px;
+  background:linear-gradient(90deg, #0f1b43, #162357, #0f1b43);
+  background-size:200% 100%; animation:rspShimmer 1.2s linear infinite;
+}
+@keyframes rspShimmer{ from{background-position:200% 0} to{background-position:-200% 0} }
+
+/* کُد و لینک داخل <code> */
+.rsp-wrap code{ background:#0f1b43; color:#cfe3ff; border:1px solid var(--rsp-border); border-radius:6px; padding:2px 6px }
+
+/* کارت‌های فشرده در موبایل */
+@media (max-width:600px){
+  .rsp-card{ padding:12px }
+  .rsp-btn, .rsp-tab{ padding:9px 12px }
+}
+
+/* اطمینان از خوانایی در هرجایی که وردپرس متن مشکی تزریق کند */
+.rsp-wrap .wp-core-ui .button,
+.rsp-wrap .wp-core-ui .button-primary{
+  font-family:'ReadyFont', ui-sans-serif, system-ui;
+  border-radius:8px;
+}
+.rsp-wrap .wp-core-ui .button{
+  background:#0f1b43; color:#eaf1ff; border:1px solid var(--rsp-border);
+}
+.rsp-wrap .wp-core-ui .button:hover{ filter:brightness(1.06) }
+.rsp-wrap .wp-core-ui .button-primary{
+  background:var(--rsp-accent); border-color:transparent; color:#fff;
+}
+.rsp-wrap .wp-core-ui select{ color:#eaf1ff; background:#0f1b43; border:1px solid var(--rsp-border); border-radius:8px }
+
+/* خطوط ظریف در پایین کارت‌ها */
+.rsp-sep{ height:1px; background:var(--rsp-border); margin:12px 0; border-radius:1px }
+
+/* جدول وضعیت کلی (Overview) */
+.rsp-status{ display:grid; grid-template-columns:1fr; gap:10px }
+.rsp-status .item{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:#0f1b43; border:1px solid var(--rsp-border); border-radius:12px }
+.rsp-status .item strong{ color:#fff }
+
+/* کمک به تب‌های بلند: اسکرول داخلی با پدینگ مناسب */
+.rsp-panel{ padding-bottom:24px }
