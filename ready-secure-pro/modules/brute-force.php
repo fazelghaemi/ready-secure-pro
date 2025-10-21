@@ -172,5 +172,3 @@ class RSP_Module_Brute_Force implements RSP_Module_Interface
         }
     }
 }
-
-}
