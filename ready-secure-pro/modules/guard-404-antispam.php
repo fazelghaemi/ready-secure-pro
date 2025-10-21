@@ -194,7 +194,14 @@ class RSP_Module_Guard_404_AntiSpam implements RSP_Module_Interface
         $win    = max(30, (int) get_option('rsp_404_window', 120));
         $lock_m = max(5,  (int) get_option('rsp_404_lock_minutes', 30));
 
-        $bucket = 'b' . intdiv(time(), $win);
+        // سازگاری با intdiv برای PHP < 7
+        if (!function_exists('intdiv')) {
+            function rsp_intdiv($a, $b) { return ($a - ($a % $b)) / $b; }
+            $bucket = 'b' . rsp_intdiv(time(), $win);
+        } else {
+            $bucket = 'b' . intdiv(time(), $win);
+        }
+        
         $key    = 'rsp_404_cnt_' . md5($ip . '|' . $bucket);
 
         $n = (int) get_transient($key);

@@ -7,6 +7,7 @@ if (!defined('ABSPATH')) { exit; }
  * - افزودن تب «راهنما» + دکمه‌های اعمال تنظیمات پیشنهادی (۳ پروفایل)
  * - هر تب/فرم گروه تنظیمات مستقل دارد؛ ذخیرهٔ یک فرم، بقیه را دست نمی‌زند
  * - پیام‌های settings_errors، Flush پیوندها (AJAX)، Export/Import تنظیمات
+ * - [اصلاح] حذف کامل بخش اسکنرها
  */
 class RSP_Admin {
 
@@ -51,12 +52,14 @@ class RSP_Admin {
         // AJAX
         add_action('wp_ajax_rsp_export_settings', [$this, 'ajax_export_settings']);
         add_action('wp_ajax_rsp_import_settings', [$this, 'ajax_import_settings']);
-        add_action('wp_ajax_rsp_scan_integrity',  [$this, 'ajax_scan_integrity']);
-        add_action('wp_ajax_rsp_scan_malware',    [$this, 'ajax_scan_malware']);
-        add_action('wp_ajax_rsp_scan_fsperms',    [$this, 'ajax_scan_fsperms']);
         add_action('wp_ajax_rsp_get_logs',        [$this, 'ajax_get_logs']);
         add_action('wp_ajax_rsp_clear_logs',      [$this, 'ajax_clear_logs']);
         add_action('wp_ajax_rsp_flush_rewrites',  [$this, 'ajax_flush_rewrites']);
+        
+        // [حذف] اکشن‌های AJAX اسکنرها حذف شدند
+        // add_action('wp_ajax_rsp_scan_integrity',  [$this, 'ajax_scan_integrity']);
+        // add_action('wp_ajax_rsp_scan_malware',    [$this, 'ajax_scan_malware']);
+        // add_action('wp_ajax_rsp_scan_fsperms',    [$this, 'ajax_scan_fsperms']);
     }
 
     public function i18n() {
@@ -120,9 +123,11 @@ class RSP_Admin {
         register_setting('rsp_settings_404_antispam', 'rsp_antispam_min_secs', ['type'=>'integer','default'=>8,'sanitize_callback'=>'absint']);
         register_setting('rsp_settings_404_antispam', 'rsp_antispam_max_links',['type'=>'integer','default'=>2,'sanitize_callback'=>'absint']);
 
-        // فایل‌گارد و اسکن‌ها (برای نمایش وضعیت)
+        // فایل‌گارد
         register_setting('rsp_settings_fs', 'rsp_file_guard_enable', ['type'=>'boolean','default'=>1,'sanitize_callback'=>$bool]);
-        register_setting('rsp_settings_scan', 'rsp_integrity_enable', ['type'=>'boolean','default'=>1,'sanitize_callback'=>$bool]);
+        
+        // [حذف] تنظیم اسکنر حذف شد
+        // register_setting('rsp_settings_scan', 'rsp_integrity_enable', ['type'=>'boolean','default'=>1,'sanitize_callback'=>$bool]);
     }
 
     public function render() {
@@ -148,13 +153,11 @@ class RSP_Admin {
                 <button class="rsp-tab" data-target="#tab-login"><?php _e('ورود و دسترسی','ready-secure-pro'); ?></button>
                 <button class="rsp-tab" data-target="#tab-waf"><?php _e('فایروال / WAF','ready-secure-pro'); ?></button>
                 <button class="rsp-tab" data-target="#tab-guard"><?php _e('گارد 404 / ضداسپم','ready-secure-pro'); ?></button>
-                <button class="rsp-tab" data-target="#tab-scan"><?php _e('اسکن‌ها','ready-secure-pro'); ?></button>
                 <button class="rsp-tab" data-target="#tab-logs"><?php _e('لاگ‌ها','ready-secure-pro'); ?></button>
                 <button class="rsp-tab" data-target="#tab-help">❓ <?php _e('راهنما','ready-secure-pro'); ?></button>
             </div>
 
             <div class="rsp-panels">
-                <!-- Overview -->
                 <div class="rsp-panel is-active" id="tab-overview">
                     <div class="rsp-card">
                         <h3><?php _e('وضعیت سریع','ready-secure-pro'); ?></h3>
@@ -171,7 +174,6 @@ class RSP_Admin {
                     </div>
                 </div>
 
-                <!-- Login & Access -->
                 <div class="rsp-panel" id="tab-login">
                     <form method="post" action="options.php" class="rsp-card">
                         <?php
@@ -188,7 +190,6 @@ class RSP_Admin {
                     </form>
                 </div>
 
-                <!-- WAF / REST -->
                 <div class="rsp-panel" id="tab-waf">
                     <form method="post" action="options.php" class="rsp-card">
                         <?php
@@ -205,7 +206,6 @@ class RSP_Admin {
                     </form>
                 </div>
 
-                <!-- 404 Guard / Anti-Spam -->
                 <div class="rsp-panel" id="tab-guard">
                     <form method="post" action="options.php" class="rsp-card">
                         <?php
@@ -215,26 +215,6 @@ class RSP_Admin {
                     </form>
                 </div>
 
-                <!-- Scanners -->
-                <div class="rsp-panel" id="tab-scan">
-                    <div class="rsp-card">
-                        <h3><?php _e('اسکن یکپارچگی هسته','ready-secure-pro'); ?></h3>
-                        <button class="rsp-btn" id="rsp-scan-integrity"><?php _e('اجرای اسکن','ready-secure-pro'); ?></button>
-                        <pre id="rsp-out-integrity"></pre>
-                    </div>
-                    <div class="rsp-card">
-                        <h3><?php _e('اسکن بدافزار (سریع)','ready-secure-pro'); ?></h3>
-                        <button class="rsp-btn" id="rsp-scan-malware"><?php _e('اجرای اسکن','ready-secure-pro'); ?></button>
-                        <pre id="rsp-out-malware"></pre>
-                    </div>
-                    <div class="rsp-card">
-                        <h3><?php _e('اسکن سطح دسترسی فایل/پوشه','ready-secure-pro'); ?></h3>
-                        <button class="rsp-btn" id="rsp-scan-fs"><?php _e('اجرای اسکن','ready-secure-pro'); ?></button>
-                        <pre id="rsp-out-fs"></pre>
-                    </div>
-                </div>
-
-                <!-- Logs -->
                 <div class="rsp-panel" id="tab-logs">
                     <div class="rsp-card">
                         <h3><?php _e('لاگ رویدادها','ready-secure-pro'); ?></h3>
@@ -246,7 +226,6 @@ class RSP_Admin {
                     </div>
                 </div>
 
-                <!-- Help -->
                 <div class="rsp-panel" id="tab-help">
                     <div class="rsp-card">
                         <h3>راهنمای سریع استفاده</h3>
@@ -254,7 +233,7 @@ class RSP_Admin {
                             <li><strong>ورود و دسترسی:</strong> اسلاگ ورود را تنظیم کن (پیش‌فرض <code>manager</code>) و سپس «بازسازی پیوندهای یکتا» را بزن.</li>
                             <li><strong>فایروال (WAF):</strong> WAF را فعال کن؛ اگر پشت CDN هستی، IPهای مدیریتی یا عبارت‌های User-Agent معتبر را در Whitelist بنویس.</li>
                             <li><strong>گارد 404 / ضداسپم:</strong> آستانهٔ منطقی تعیین کن (مثلاً 12 خطا در 120 ثانیه، قفل 30 دقیقه) و ضداسپم دیدگاه را روشن بگذار.</li>
-                            <li><strong>اسکن‌ها:</strong> یک‌بار اسکن یکپارچگی و بدافزار را اجرا کن؛ نتیجه در لاگ‌ها ذخیره می‌شود.</li>
+                            <li><strong>لاگ‌ها:</strong> رویدادهای امنیتی در این تب نمایش داده می‌شوند.</li>
                         </ol>
                         <div class="rsp-sep"></div>
                         <h3>تنظیمات پیشنهادی (پروفایل‌ها)</h3>
@@ -278,7 +257,6 @@ class RSP_Admin {
                         </ul>
                     </div>
 
-                    <!-- اسکریپت سبک اعمال پروفایل‌ها (بدون نیاز به ویرایش admin.js) -->
                     <script>
                     (function(){
                         function sendProfile(payload){
@@ -374,6 +352,8 @@ class RSP_Admin {
         }
     }
 
+    // [حذف] توابع AJAX اسکنرها حذف شدند
+    /*
     public function ajax_scan_integrity() {
         $this->check_ajax();
         if (!class_exists('RSP_Module_Integrity')) wp_send_json_error('no_integrity');
@@ -394,6 +374,7 @@ class RSP_Admin {
         $m = new RSP_Module_FS_Permissions();
         wp_send_json_success($m->scan());
     }
+    */
 
     public function ajax_get_logs() {
         $this->check_ajax();

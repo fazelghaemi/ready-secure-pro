@@ -23,6 +23,8 @@
     }; r.readAsText(f);
   });
 
+  // [حذف] توابع و ایونت‌های اسکنر حذف شدند
+  /*
   function runScan(btn, out, action){
     $(out).text('...'); $.post(RSP.ajax, {action:action, _ajax_nonce:RSP.nonce}, function(res){
       $(out).text(res.success? JSON.stringify(res.data,null,2) : 'خطا');
@@ -31,6 +33,7 @@
   $('#rsp-scan-integrity').on('click', function(e){ e.preventDefault(); runScan(this, '#rsp-out-integrity','rsp_scan_integrity'); });
   $('#rsp-scan-malware').on('click', function(e){ e.preventDefault(); runScan(this, '#rsp-out-malware','rsp_scan_malware'); });
   $('#rsp-scan-fs').on('click', function(e){ e.preventDefault(); runScan(this, '#rsp-out-fs','rsp_scan_fsperms'); });
+  */
 
   $('#rsp-refresh-logs').on('click', function(){ $('#rsp-out-logs').text('...'); $.post(RSP.ajax,{action:'rsp_get_logs',_ajax_nonce:RSP.nonce},function(res){ $('#rsp-out-logs').text(res.success? JSON.stringify(res.data,null,2):'خطا'); }); });
   $('#rsp-clear-logs').on('click', function(){ if(!confirm('حذف لاگ‌ها؟')) return; $.post(RSP.ajax,{action:'rsp_clear_logs',_ajax_nonce:RSP.nonce},function(){ alert('Done'); $('#rsp-out-logs').text('[]'); }); });

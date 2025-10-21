@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Ready Secure Pro
  * Description: مجموعه ابزارهای امنیت وردپرس (WAF سبک، گارد 404، ضداسپم دیدگاه، تغییر آدرس ورود، File Guard، هاردنینگ و اسکن‌ها)
- * Version:     2.4.2
+ * Version:     2.4.3
  * Author:      Ready Studio
  * Text Domain: ready-secure-pro
  */
@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) { exit; }
 /* -------------------------------------------------
  * ثابت‌ها
  * ------------------------------------------------- */
-if (!defined('RSP_VERSION')) define('RSP_VERSION', '2.4.2');
+if (!defined('RSP_VERSION')) define('RSP_VERSION', '2.4.3');
 if (!defined('RSP_PATH'))    define('RSP_PATH', plugin_dir_path(__FILE__));
 if (!defined('RSP_URL'))     define('RSP_URL',  plugin_dir_url(__FILE__));
 
@@ -95,6 +95,9 @@ register_deactivation_hook(__FILE__, function () {
  * ------------------------------------------------- */
 add_action('plugins_loaded', function () {
 
+    // [اصلاح ۱] بارگذاری Helper ها برای رفع Fatal Error
+    rsp_require('includes/helpers.php');
+    
     // استایل/اسکریپت مدیریت و صفحه تنظیمات
     rsp_require('includes/class-admin.php');
 
@@ -105,11 +108,18 @@ add_action('plugins_loaded', function () {
         'modules/guard-404-antispam.php'  => 'RSP_Module_Guard_404_AntiSpam',
         'modules/rest-guard.php'          => 'RSP_Module_REST_Guard',
         'modules/hardening.php'           => 'RSP_Module_Hardening',
-        'modules/integrity.php'           => 'RSP_Module_Integrity',
-        'modules/malware-scanner.php'     => 'RSP_Module_Malware_Scanner',
-        'modules/fs-permissions.php'      => 'RSP_Module_FS_Permissions',
-        'modules/brute-force.php'       => 'RSP_Module_Brute_Force',
-        // هر ماژول جدید را به همین آرایه اضافه کن
+        'modules/brute-force.php'         => 'RSP_Module_Brute_Force',
+        
+        // [اصلاح ۳] ماژول‌های جامانده اضافه شدند
+        'modules/login-url.php'           => 'RSP_Module_Login_Url',
+        'modules/xmlrpc.php'              => 'RSP_Module_XMLRPC',
+        'modules/activity-log.php'        => 'RSP_Module_Activity_Log',
+        
+        // [اصلاح ۲] ماژول‌های اسکنر حذف شدند
+        // 'modules/integrity.php'           => 'RSP_Module_Integrity',
+        // 'modules/malware-scanner.php'     => 'RSP_Module_Malware_Scanner', // مسیر این فایل اشتباه بود
+        // 'modules/scanners/class-rsp-malware-scanner.php' => 'RSP_Module_Malware_Scanner', // مسیر صحیح
+        // 'modules/fs-permissions.php'      => 'RSP_Module_FS_Permissions',
     ];
 
     // لود کلاس ادمین
@@ -122,7 +132,13 @@ add_action('plugins_loaded', function () {
 
     // لود و راه‌اندازی ماژول‌ها
     foreach ($modules as $file => $class) {
+        // مسیر فایل اسکنر بدافزار متفاوت بود، اصلاح شد
+        if ($class === 'RSP_Module_Malware_Scanner' && $file === 'modules/malware-scanner.php') {
+             $file = 'modules/scanners/class-rsp-malware-scanner.php';
+        }
+
         rsp_require($file);
+        
         if (class_exists($class)) {
             try {
                 $obj = new $class();
@@ -145,12 +161,26 @@ add_action('plugins_loaded', function () {
  * هاردنینگ هدرها (HSTS فقط روی HTTPS)
  * ------------------------------------------------- */
 add_action('send_headers', function () {
+    // این توابع اکنون باید بدون خطا کار کنند چون helpers.php لود شده است
+    
     // مثال: HSTS فقط در HTTPS
     if (get_option('rsp_headers_hsts', 1) && is_ssl()) {
-        header('Strict-Transport-Security: max-age=31536000; includeSubDomains; preload');
+        // تابع rsp_send_header_once تعریف شده در helpers.php
+        if (function_exists('rsp_send_header_once')) {
+            rsp_send_header_once('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+        } else {
+            header('Strict-Transport-Security: max-age=31536000; includeSubDomains; preload');
+        }
     }
-    // سایر هدرهای سبک
-    header('Referrer-Policy: ' . esc_attr(get_option('rsp_headers_referrer', 'no-referrer')));
-    header('X-Frame-Options: SAMEORIGIN');
-    header('X-Content-Type-Options: nosniff');
+    
+    if (function_exists('rsp_send_header_once')) {
+        rsp_send_header_once('Referrer-Policy', esc_attr(get_option('rsp_headers_referrer', 'no-referrer')));
+        rsp_send_header_once('X-Frame-Options', 'SAMEORIGIN');
+        rsp_send_header_once('X-Content-Type-Options', 'nosniff');
+    } else {
+        // Fallback در صورتی که تابع به هر دلیلی لود نشده باشد
+        header('Referrer-Policy: ' . esc_attr(get_option('rsp_headers_referrer', 'no-referrer')));
+        header('X-Frame-Options: SAMEORIGIN');
+        header('X-Content-Type-Options: nosniff');
+    }
 }, 11);
