@@ -3,8 +3,9 @@ if (!defined('ABSPATH')) { exit; }
 
 /**
  * Ready Secure Pro - Admin Area
- * v2.5.1
- * - [اصلاح] حذف ثبت تنظیمات ماژول‌های دیگر از این کلاس (رفع وابستگی)
+ * v2.5.2
+ * - [اصلاح] انتقال بارگذاری ترجمه‌ها به هوک init برای رفع Notice
+ * - حذف ثبت تنظیمات ماژول‌های دیگر از این کلاس (رفع وابستگی)
  * - افزودن تب «راهنما» + دکمه‌های اعمال تنظیمات پیشنهادی (۳ پروفایل)
  * - هر تب/فرم گروه تنظیمات مستقل دارد؛ ذخیرهٔ یک فرم، بقیه را دست نمی‌زند
  * - پیام‌های settings_errors، Flush پیوندها (AJAX)، Export/Import تنظیمات
@@ -13,7 +14,10 @@ if (!defined('ABSPATH')) { exit; }
 class RSP_Admin {
 
     public function init() {
-        add_action('plugins_loaded', [$this, 'i18n']);
+        // [اصلاح] بارگذاری ترجمه‌ها به هوک init منتقل شد
+        add_action('init', [$this, 'i18n']);
+        // add_action('plugins_loaded', [$this, 'i18n']); // <-- حذف شد
+
         add_action('admin_menu',     [$this, 'menu']);
         add_action('admin_enqueue_scripts', [$this, 'assets']);
 
@@ -47,9 +51,6 @@ class RSP_Admin {
             );
         });
 
-        // [حذف] دیگر نیازی به مپ کردن تنظیمات در اینجا نیست، چون هر ماژول خودش ثبت می‌کند.
-        // add_action('admin_init', [$this, 'map_settings_to_groups'], 999);
-
         // AJAX
         add_action('wp_ajax_rsp_export_settings', [$this, 'ajax_export_settings']);
         add_action('wp_ajax_rsp_import_settings', [$this, 'ajax_import_settings']);
@@ -58,6 +59,7 @@ class RSP_Admin {
         add_action('wp_ajax_rsp_flush_rewrites',  [$this, 'ajax_flush_rewrites']);
     }
 
+    // این تابع اکنون فقط در هوک init اجرا می‌شود
     public function i18n() {
         load_plugin_textdomain('ready-secure-pro', false, dirname(plugin_basename(__FILE__), 2) . '/languages');
     }
@@ -84,16 +86,9 @@ class RSP_Admin {
         ]);
     }
 
-    // [حذف] این تابع دیگر استفاده نمی‌شود و می‌توان آن را حذف کرد یا خالی گذاشت.
     /** @deprecated */
     public function map_settings_to_groups() {
-        // $bool = function($v){ return in_array($v, [1,'1','on','true',true], true) ? 1 : 0; };
-        // // Brute Force - حذف شد
-        // // WAF - حذف شد
-        // // REST & XML-RPC - حذف شد
-        // // Headers - حذف شد
-        // // 404 + AntiSpam - حذف شد
-        // // فایل‌گارد - حذف شد
+        // این تابع دیگر استفاده نمی‌شود.
     }
 
     public function render() {
@@ -143,7 +138,6 @@ class RSP_Admin {
                 <div class="rsp-panel" id="tab-login">
                     <form method="post" action="options.php" class="rsp-card">
                         <?php
-                        // گروه تنظیمات اسلاگ ورود
                         settings_fields('rsp_settings_login');
                         do_settings_sections('rsp_settings_login');
                         submit_button(__('ذخیره تنظیمات ورود','ready-secure-pro'),'primary','submit',false,['class'=>'rsp-btn']); ?>
@@ -151,7 +145,6 @@ class RSP_Admin {
 
                     <form method="post" action="options.php" class="rsp-card">
                         <?php
-                        // گروه تنظیمات Brute Force (که توسط ماژول خودش ثبت شده)
                         settings_fields('rsp_settings_bf');
                         do_settings_sections('rsp_settings_bf');
                         submit_button(__('ذخیره تنظیمات Brute-Force','ready-secure-pro'),'primary','submit',false,['class'=>'rsp-btn']); ?>
@@ -161,7 +154,6 @@ class RSP_Admin {
                 <div class="rsp-panel" id="tab-waf">
                     <form method="post" action="options.php" class="rsp-card">
                         <?php
-                        // گروه تنظیمات WAF (که توسط ماژول خودش ثبت شده)
                         settings_fields('rsp_settings_waf');
                         do_settings_sections('rsp_settings_waf');
                         submit_button(__('ذخیره تنظیمات WAF','ready-secure-pro'),'primary','submit',false,['class'=>'rsp-btn']); ?>
@@ -169,7 +161,6 @@ class RSP_Admin {
 
                     <form method="post" action="options.php" class="rsp-card">
                         <?php
-                        // گروه تنظیمات REST/XMLRPC (که توسط ماژول خودش ثبت شده)
                         settings_fields('rsp_settings_xmlrpc_rest');
                         do_settings_sections('rsp_settings_xmlrpc_rest');
                         submit_button(__('ذخیره تنظیمات REST/XML-RPC','ready-secure-pro'),'primary','submit',false,['class'=>'rsp-btn']); ?>
@@ -179,7 +170,6 @@ class RSP_Admin {
                 <div class="rsp-panel" id="tab-guard">
                     <form method="post" action="options.php" class="rsp-card">
                         <?php
-                        // گروه تنظیمات 404/Antispam (که توسط ماژول خودش ثبت شده)
                         settings_fields('rsp_settings_404_antispam');
                         do_settings_sections('rsp_settings_404_antispam');
                         submit_button(__('ذخیره','ready-secure-pro'),'primary','submit',false,['class'=>'rsp-btn']); ?>
@@ -299,7 +289,7 @@ class RSP_Admin {
 
     public function ajax_export_settings() {
         $this->check_ajax();
-        // اطمینان از وجود تابع قبل از فراخوانی (چون در helpers.php است)
+        // اطمینان از وجود تابع قبل از فراخوانی
         if (!function_exists('rsp_option_export')) {
             require_once RSP_PATH . 'includes/helpers.php';
             if (!function_exists('rsp_option_export')) {
@@ -331,7 +321,7 @@ class RSP_Admin {
             rsp_option_import($safe);
             wp_send_json_success(['ok'=>1]);
         } else {
-            // Fallback: حداقل اعمال کن اگر تابع نبود
+            // Fallback
             foreach ($safe as $k=>$v) update_option($k,$v);
             wp_send_json_success(['ok'=>1,'fallback'=>1]);
         }
@@ -342,20 +332,18 @@ class RSP_Admin {
         global $wpdb;
         $t = $wpdb->prefix . 'rsp_logs';
         $rows = $wpdb->get_results("SELECT * FROM $t ORDER BY id DESC LIMIT 200", ARRAY_A);
-        
-        // Fallback به option اگر جدول خالی بود یا وجود نداشت
+
         if (empty($rows) && $wpdb->last_error) {
              $rows = get_option('rsp_activity_log', []);
              if (!is_array($rows)) $rows = [];
-             // مرتب‌سازی معکوس بر اساس زمان تقریبی (اگر created_at باشد) یا فقط معکوس کردن آرایه
              usort($rows, function($a, $b) {
                  $ts_a = isset($a['created_at']) ? strtotime($a['created_at']) : 0;
                  $ts_b = isset($b['created_at']) ? strtotime($b['created_at']) : 0;
-                 return $ts_b <=> $ts_a; // Descending order
+                 return $ts_b <=> $ts_a;
              });
              $rows = array_slice($rows, 0, 200);
         } elseif (!$rows) {
-            $rows = []; // اطمینان از اینکه همیشه آرایه برمی‌گردد
+            $rows = [];
         }
 
         wp_send_json_success($rows);
@@ -364,9 +352,7 @@ class RSP_Admin {
     public function ajax_clear_logs() {
         $this->check_ajax();
         global $wpdb;
-        // تلاش برای پاک کردن جدول
         $wpdb->query("TRUNCATE TABLE " . $wpdb->prefix . "rsp_logs");
-        // پاک کردن آپشن fallback
         delete_option('rsp_activity_log');
         wp_send_json_success(['ok'=>1]);
     }
